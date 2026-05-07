@@ -1,0 +1,13 @@
+CXX_STD = CXX17
+MAKEFLAGS = -j4
+CXXFLAGS = -O2 -Wall -pipe -march=native -mtune=native
+# 自动排除 main.cpp
+OBJECTS = $(filter-out main.o,$(patsubst %.cpp,%.o,$(wildcard *.cpp)))
+
+# PKG_CPPFLAGS =  $(SHLIB_OPENMP_CXXFLAGS)
+PKG_CXXFLAGS = $(SHLIB_OPENMP_CXXFLAGS)
+PKG_LIBS     = -lz -llzma $(SHLIB_OPENMP_CXXFLAGS)
+
+
+PKG_CPPFLAGS = -O3 -march=native -mtune=native -fvisibility=hidden -fvisibility-inlines-hidden
+PKG_LIBS += -Wl,--strip-all -static-libgcc -static-libstdc++
