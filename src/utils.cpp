@@ -366,7 +366,7 @@ void find_best_overlap(
     merged_rec.qual.clear();
     merged_rec.id = r1.id;
     merged_rec.plus = r1.plus;
-
+    /*
     // Non-OES mode: use the original overlap-by-mismatch strategy.
     if (!enable_oes_test) {
         bool is_offset = false;
@@ -475,7 +475,7 @@ void find_best_overlap(
 
         return;
     }
-
+    */
     // OES mode: use the PEAR-style scoring and OES filtering.
     double q = base_pb.A * base_pb.A +
         base_pb.C * base_pb.C +
