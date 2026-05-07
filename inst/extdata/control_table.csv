@@ -1,0 +1,199 @@
+sample,tag,group,category,EB,FB,PB
+site_t1_1,F001,exp1,sample,E11210,F2,e1e2_P1
+site_t1_2,F002,exp1,sample,E11210,F2,e1e2_P1
+site_t1_3,F003,exp1,sample,E11210,F2,e1e2_P1
+site_t1_4,F004,exp1,sample,E11210,F2,e1e2_P1
+site_t1_5,F005,exp1,sample,E11210,F2,e1e2_P1
+site_t1_6,F006,exp1,sample,E11210,F1,e1e2_P1
+site_t1_7,F007,exp1,sample,E11210,F1,e1e2_P1
+site_t1_8,F008,exp1,sample,E11210,F1,e1e2_P1
+site_t1_1,F009,exp1,sample,E11210,F2,e1e2_P1
+site_t1_2,F010,exp1,sample,E11210,F2,e1e2_P1
+site_t1_3,F011,exp1,sample,E11210,F2,e1e2_P1
+site_t1_4,F012,exp1,sample,E11210,F2,e1e2_P1
+site_t1_5,F013,exp1,sample,E11210,F2,e1e2_P1
+site_t1_6,F014,exp1,sample,E11210,F1,e1e2_P1
+site_t1_7,F015,exp1,sample,E11210,F1,e1e2_P1
+site_t1_8,F016,exp1,sample,E11210,F1,e1e2_P1
+site_t1_1,F017,exp1,sample,E11210,F2,e1e2_P1
+site_t1_2,F018,exp1,sample,E11210,F2,e1e2_P1
+site_t1_3,F019,exp1,sample,E11210,F2,e1e2_P1
+site_t1_4,F243,exp1,sample,E11210,F2,e1e2_R2
+site_t1_5,F021,exp1,sample,E11210,F2,e1e2_P1
+site_t1_6,F022,exp1,sample,E11210,F1,e1e2_P1
+site_t1_7,F023,exp1,sample,E11210,F1,e1e2_P1
+site_t1_8,F024,exp1,sample,E11210,F1,e1e2_P1
+site_t1_9,F025,exp1,sample,E11210,F1,e1e2_P1
+site_t1_10,F026,exp1,sample,E11210,F3,e1e2_P1
+site_t1_11,F027,exp1,sample,E11210,F3,e1e2_P1
+site_t1_12,F028,exp1,sample,E11210,F3,e1e2_P1
+site_t1_13,F029,exp1,sample,E11210,F3,e1e2_P1
+site_t1_14,F030,exp1,sample,E11210,F3,e1e2_P1
+site_t1_15,F031,exp1,sample,E11210,F3,e1e2_P1
+site_t1_16,F032,exp1,sample,E11210,F3,e1e2_P1
+site_t1_9,F033,exp1,sample,E11210,F1,e1e2_P1
+site_t1_10,F034,exp1,sample,E11210,F3,e1e2_P1
+site_t1_11,F035,exp1,sample,E11210,F3,e1e2_P1
+site_t1_12,F036,exp1,sample,E11210,F3,e1e2_P1
+site_t1_13,F037,exp1,sample,E11210,F3,e1e2_P1
+site_t1_14,F038,exp1,sample,E11210,F3,e1e2_P1
+site_t1_15,F039,exp1,sample,E11210,F3,e1e2_P1
+site_t1_16,F040,exp1,sample,E11210,F3,e1e2_P1
+site_t1_9,F041,exp1,sample,E11210,F1,e1e2_P1
+site_t1_10,F042,exp1,sample,E11210,F3,e1e2_P1
+site_t1_11,F043,exp1,sample,E11210,F3,e1e2_P1
+site_t1_12,F044,exp1,sample,E11210,F3,e1e2_P1
+site_t1_13,F045,exp1,sample,E11210,F3,e1e2_P1
+site_t1_14,F046,exp1,sample,E11210,F3,e1e2_P1
+site_t1_15,F047,exp1,sample,E11210,F3,e1e2_P1
+site_t1_16,F048,exp1,sample,E11210,F3,e1e2_P1
+site_t2_1,F049,exp1,sample,E11211,F2,e1e2_P1
+site_t2_2,F050,exp1,sample,E11211,F2,e1e2_P1
+site_t2_3,F051,exp1,sample,E11211,F2,e1e2_P1
+site_t2_4,F052,exp1,sample,E11211,F2,e1e2_P1
+site_t2_5,F053,exp1,sample,E11211,F2,e1e2_P1
+F1,F054,exp1,FB,E11211,NA,e1e2_P1
+F2,F055,exp1,FB,E11211,NA,e1e2_P1
+F3,F056,exp1,FB,E11211,NA,e1e2_P1
+site_t2_1,F057,exp1,sample,E11211,F2,e1e2_P1
+site_t2_2,F058,exp1,sample,E11211,F2,e1e2_P1
+site_t2_3,F059,exp1,sample,E11211,F2,e1e2_P1
+site_t2_4,F060,exp1,sample,E11211,F2,e1e2_P1
+site_t2_5,F061,exp1,sample,E11211,F2,e1e2_P1
+F1,F062,exp1,FB,E11211,NA,e1e2_R2
+F2,F063,exp1,FB,E11211,NA,e1e2_P1
+F3,F064,exp1,FB,E11211,NA,e1e2_P1
+site_t2_1,F065,exp1,sample,E11211,F2,e1e2_P1
+site_t2_2,F066,exp1,sample,E11211,F2,e1e2_P1
+site_t2_3,F067,exp1,sample,E11211,F2,e1e2_P1
+site_t2_4,F068,exp1,sample,E11211,F2,e1e2_P1
+site_t2_5,F069,exp1,sample,E11211,F2,e1e2_P1
+F1,F070,exp1,FB,E11211,NA,e1e2_R2
+F2,F071,exp1,FB,E11211,NA,e1e2_P1
+F3,F072,exp1,FB,E11211,NA,e1e2_P1
+E11210,F073,exp1,EB,E11211,NA,e1e2_P1
+E11211,F074,exp1,EB,E11211,NA,e1e2_P1
+site_t2_1,F075,exp2,sample,E2 25,F1 911,e1e2_P1
+site_t2_2,F076,exp2,sample,E2 25,F1 911,e1e2_P1
+site_t2_3,F077,exp2,sample,E2 25,F1 911,e1e2_P1
+site_t2_4,F078,exp2,sample,E2 25,F1 911,e1e2_P1
+site_t2_5,F079,exp2,sample,E2 25,F1 911,e1e2_P1
+e1e2_P1,F080,exp2,PB,NA,NA,e1e2_P1
+E11210,F081,exp1,EB,E11211,NA,e1e2_P1
+E11211,F082,exp1,EB,E11211,NA,e1e2_P1
+site_t2_1,F083,exp2,sample,E2 25,F1 911,e1e2_R3
+site_t2_2,F084,exp2,sample,E2 25,F1 911,e1e2_P1
+site_t2_3,F085,exp2,sample,E2 25,F1 911,e1e2_P1
+site_t2_4,F086,exp2,sample,E2 25,F1 911,e1e2_P1
+site_t2_5,F087,exp2,sample,E2 25,F1 911,e1e2_P1
+e1e2_P1,F088,exp2,PB,NA,NA,e1e2_P1
+E11210,F089,exp1,EB,E11211,NA,e1e2_P1
+E11211,F090,exp1,EB,E11211,NA,e1e2_P1
+site_t2_1,F091,exp2,sample,E2 25,F1 911,e1e2_P1
+site_t2_2,F092,exp2,sample,E2 25,F1 911,e1e2_P1
+site_t2_3,F093,exp2,sample,E2 25,F1 911,e1e2_P1
+site_t2_4,F094,exp2,sample,E2 25,F1 911,e1e2_P1
+site_t2_5,F095,exp2,sample,E2 25,F1 911,e1e2_P1
+e1e2_P1,F096,exp2,PB,NA,NA,e1e2_P1
+site_t2_6,F097,exp2,sample,E2 25,F1 911,e1e2_P2
+site_t2_7,F098,exp2,sample,E2 25,F1 911,e1e2_P2
+site_t2_8,F099,exp2,sample,E2 25,F1 911,e1e2_P2
+site_t1_1,F100,exp2,sample,E2 25,F2911,e1e2_P2
+site_t1_2,F101,exp2,sample,E2 25,F2911,e1e2_P2
+site_t1_3,F102,exp2,sample,E2 25,F2911,e1e2_P2
+site_t1_4,F103,exp2,sample,E2 25,F2911,e1e2_P2
+site_t1_5,F104,exp2,sample,E2 25,F2911,e1e2_P2
+site_t2_6,F105,exp2,sample,E2 25,F1 911,e1e2_P2
+site_t2_7,F106,exp2,sample,E2 25,F1 911,e1e2_P2
+site_t2_8,F107,exp2,sample,E2 25,F1 911,e1e2_P2
+site_t1_1,F108,exp2,sample,E2 25,F2911,e1e2_P2
+site_t1_2,F109,exp2,sample,E2 25,F2911,e1e2_P2
+site_t1_3,F110,exp2,sample,E2 25,F2911,e1e2_P2
+site_t1_4,F111,exp2,sample,E2 25,F2911,e1e2_P2
+site_t1_5,F112,exp2,sample,E2 25,F2911,e1e2_P2
+site_t2_6,F113,exp2,sample,E2 25,F1 911,e1e2_P2
+site_t2_7,F114,exp2,sample,E2 25,F1 911,e1e2_P2
+site_t2_8,F115,exp2,sample,E2 25,F1 911,e1e2_P2
+site_t1_1,F116,exp2,sample,E2 25,F2911,e1e2_P2
+site_t1_2,F117,exp2,sample,E2 25,F2911,e1e2_P2
+site_t1_3,F118,exp2,sample,E2 25,F2911,e1e2_P2
+site_t1_4,F119,exp2,sample,E2 25,F2911,e1e2_P2
+site_t1_5,F120,exp2,sample,E2 25,F2911,e1e2_P2
+site_t1_6,F244,exp2,sample,E2 25,F2911,e1e2_R3
+site_t1_7,F122,exp2,sample,E2 25,F2911,e1e2_R3
+site_t1_8,F123,exp2,sample,E2 25,F2911,e1e2_P2
+site_t1_9,F124,exp2,sample,E2 25,F2911,e1e2_P2
+site_t1_10,F125,exp2,sample,E2 25,F2911,e1e2_P2
+site_t1_11,F126,exp2,sample,E2 25,F3 911,e1e2_P2
+site_t1_12,F241,exp2,sample,E2 25,F3 911,e1e2_R2
+site_t1_13,F128,exp2,sample,E2 25,F3 911,e1e2_R3
+site_t1_6,F129,exp2,sample,E2 25,F2911,e1e2_P2
+site_t1_7,F130,exp2,sample,E2 25,F2911,e1e2_P2
+site_t1_8,F131,exp2,sample,E2 25,F2911,e1e2_P2
+site_t1_9,F132,exp2,sample,E2 25,F2911,e1e2_P2
+site_t1_10,F133,exp2,sample,E2 25,F2911,e1e2_P2
+site_t1_11,F134,exp2,sample,E2 25,F3 911,e1e2_P2
+site_t1_12,F135,exp2,sample,E2 25,F3 911,e1e2_P2
+site_t1_13,F248,exp2,sample,E2 25,F3 911,e1e2_R4
+site_t1_6,F137,exp2,sample,E2 25,F2911,e1e2_P2
+site_t1_7,F138,exp2,sample,E2 25,F2911,e1e2_P2
+site_t1_8,F139,exp2,sample,E2 25,F2911,e1e2_P2
+site_t1_9,F140,exp2,sample,E2 25,F2911,e1e2_P2
+site_t1_10,F141,exp2,sample,E2 25,F2911,e1e2_P2
+site_t1_11,F142,exp2,sample,E2 25,F3 911,e1e2_P2
+site_t1_12,F242,exp2,sample,E2 25,F3 911,e1e2_R2
+site_t1_13,F144,exp2,sample,E2 25,F3 911,e1e2_P2
+site_t1_14,F145,exp2,sample,E2 25,F3 911,e1e2_P2
+site_t1_15-1,F146,exp2,sample,E2 25,F3 911,e1e2_P2
+site_t1_15-2,F147,exp2,sample,E2 25,F3 911,e1e2_P2
+site_t1_16,F148,exp2,sample,E2 25,F3 911,e1e2_P2
+site_t1_17,F149,exp2,sample,E2 25,F3 911,e1e2_P2
+site_t1_18,F150,exp2,sample,E2 25,F3 911,e1e2_P2
+site_t1_19,F151,exp2,sample,E2 25,F3 911,e1e2_P2
+site_t1_20,F152,exp2,sample,E2 25,F3 911,e1e2_P2
+site_t1_14,F153,exp2,sample,E2 25,F3 911,e1e2_P2
+site_t1_15-1,F154,exp2,sample,E2 25,F3 911,e1e2_P2
+site_t1_15-2,F155,exp2,sample,E2 25,F3 911,e1e2_P2
+site_t1_16,F156,exp2,sample,E2 25,F3 911,e1e2_P2
+site_t1_17,F157,exp2,sample,E2 25,F3 911,e1e2_P2
+site_t1_18,F158,exp2,sample,E2 25,F3 911,e1e2_P2
+site_t1_19,F159,exp2,sample,E2 25,F3 911,e1e2_P2
+site_t1_20,F160,exp2,sample,E2 25,F3 911,e1e2_P2
+site_t1_14,F161,exp2,sample,E2 25,F3 911,e1e2_P2
+site_t1_15-1,F162,exp2,sample,E2 25,F3 911,e1e2_P2
+site_t1_15-2,F247,exp2,sample,E2 25,F3 911,e1e2_R4
+site_t1_16,F164,exp2,sample,E2 25,F3 911,e1e2_P2
+site_t1_17,F165,exp2,sample,E2 25,F3 911,e1e2_P2
+site_t1_18,F166,exp2,sample,E2 25,F3 911,e1e2_P2
+site_t1_19,F167,exp2,sample,E2 25,F3 911,e1e2_P2
+site_t1_20,F168,exp2,sample,E2 25,F3 911,e1e2_P2
+site_t1_21,F169,exp2,sample,E2 25,F3 911,e1e2_R2
+site_t1_22,F170,exp2,sample,E2 25,F3 911,e1e2_P2
+site_t1_23,F171,exp2,sample,E2 25,F3 911,e1e2_P2
+site_t1_24,F172,exp2,sample,E2 25,F3 911,e1e2_P2
+F1 911,F173,exp2,FB,E2 25,NA,e1e2_P2
+F2911,F174,exp2,FB,E2 25,NA,e1e2_P2
+F3 911,F175,exp2,FB,E2 25,NA,e1e2_P2
+E2 25,F176,exp2,EB,E2 25,NA,e1e2_P2
+site_t1_21,F177,exp2,sample,E2 25,F3 911,e1e2_P2
+site_t1_22,F178,exp2,sample,E2 25,F3 911,e1e2_P2
+site_t1_23,F179,exp2,sample,E2 25,F3 911,e1e2_P2
+site_t1_24,F180,exp2,sample,E2 25,F3 911,e1e2_P2
+F1 911,F181,exp2,FB,E2 25,NA,e1e2_P2
+F2911,F182,exp2,FB,E2 25,NA,e1e2_R2
+F3 911,F183,exp2,FB,E2 25,NA,e1e2_P2
+E2 25,F184,exp2,EB,E2 25,NA,e1e2_P2
+site_t1_21,F185,exp2,sample,E2 25,F3 911,e1e2_P2
+site_t1_22,F186,exp2,sample,E2 25,F3 911,e1e2_R2
+site_t1_23,F187,exp2,sample,E2 25,F3 911,e1e2_P2
+site_t1_24,F188,exp2,sample,E2 25,F3 911,e1e2_P2
+F1 911,F189,exp2,FB,E2 25,NA,e1e2_P2
+F2911,F190,exp2,FB,E2 25,NA,e1e2_P2
+F3 911,F191,exp2,FB,E2 25,NA,e1e2_P2
+E2 25,F192,exp2,EB,E2 25,NA,e1e2_P2
+e1e2_P2,F193,exp2,PB,NA,NA,e1e2_P2
+e1e2_P2,F201,exp2,PB,NA,NA,e1e2_P2
+e1e2_P2,F209,exp2,PB,NA,NA,e1e2_P2
+e1e2_R2,F252,exp2,PB,NA,NA,e1e2_R2
+e1e2_R2,F253,exp2,PB,NA,NA,e1e2_R2
+e1e2_R2,F254,exp2,PB,NA,NA,e1e2_R2

@@ -1,0 +1,230 @@
+#!/usr/bin/env sh
+
+## =========================================================
+## METAeDNA configure
+## =========================================================
+
+## ---------------------------------------------------------
+## Locate R compiler
+## ---------------------------------------------------------
+CXX=`"${R_HOME}/bin/R" CMD config CXX`
+CXXFLAGS=`"${R_HOME}/bin/R" CMD config CXXFLAGS`
+CXXLD=`"${R_HOME}/bin/R" CMD config CXXLD`
+echo "CXX=${CXX}"         > inst/cxx
+echo "CXXFLAGS=${CXXFLAGS}" >> inst/cxx
+
+case "$CXX" in
+  g++*)
+    GXXV=`${CXX} -dumpfullversion -dumpversion`
+    echo "* C++ Compiler: $CXX $GXXV"
+    ;;
+esac
+export CXX CXXFLAGS CXXLD
+
+## ---------------------------------------------------------
+## zlib detection (pkg-config)
+## ---------------------------------------------------------
+NOZLIB=1
+msg=0
+
+pkg-config --version > config.log 2>&1
+if [ $? -ne 0 ]; then
+  msg=1
+else
+  pkg-config --exists zlib
+  if [ $? -ne 0 ]; then
+    msg=1
+  else
+    zlib_libs=`pkg-config --libs zlib`
+    zlib_cflags=`pkg-config --cflags zlib`
+    echo "$zlib_libs" | grep -qE '[-]lz($| )' || msg=1
+    if [ "$msg" -eq 0 ]; then
+      NOZLIB=0
+      echo "* zlib detected: \`pkg-config --modversion zlib\`"
+    fi
+  fi
+fi
+
+if [ "$msg" -ne 0 ]; then
+  echo "*** zlib not usable; compression disabled"
+fi
+
+## ---------------------------------------------------------
+## OpenMP test program
+## ---------------------------------------------------------
+cat <<EOF > test-omp.cpp
+#include <omp.h>
+#include <iostream>
+int main() {
+#ifdef _OPENMP
+    std::cout << "OPENMP_NUM_PROCS=" << omp_get_num_procs() << '\n';
+    std::cout << "OPENMP_MAX_THREADS=" << omp_get_max_threads() << '\n';
+    return 0;
+#else
+    return 1;
+#endif
+}
+EOF
+
+
+R_OPENMP_ENABLED=0
+OPENMP_MODE="disabled"
+OMP_PROCS="unknown"
+OMP_MAX="unknown"
+PKG_CXXFLAGS=""
+PKG_LIBS=""
+
+
+## ---------------------------------------------------------
+## Detect OpenMP support
+## ---------------------------------------------------------
+
+detect_openmp () {
+
+  if [ "$(uname)" = "Linux" ]; then
+
+    printf "%s" "* detecting if R installation supports OpenMP directly. "
+    if "${R_HOME}/bin/R" CMD SHLIB test-omp.cpp >> config.log 2>&1; then
+      echo "yes"
+      export R_OPENMP_ENABLED=1
+      export PKG_CXXFLAGS="${PKG_CXXFLAGS} -fopenmp"
+      export OPENMP_MODE="R"
+       return
+    else
+      echo "no"
+    fi
+
+    printf "%s" "* detecting if R installation supports openmp with \"-fopenmp\" flag. "
+    if ${CXX} ${CXXFLAGS} -fopenmp test-omp.cpp >> config.log 2>&1; then
+      echo "yes"
+      export PKG_CXXFLAGS="${PKG_CXXFLAGS} -fopenmp"
+      export R_OPENMP_ENABLED=1
+      export OPENMP_MODE="fopenmp"
+      return
+    else
+      echo "no"
+    fi
+
+  fi # uname=Linux
+
+  if [ "$(uname)" = "Darwin" ]; then
+
+
+    printf "%s" "* detecting if R installation supports OpenMP with \"-Xclang -fopenmp\" . "
+    if CXXFLAGS="${CXXFLAGS} -Xclang -fopenmp" PKG_LIBS="-lomp" "${R_HOME}/bin/R" CMD SHLIB test-omp.cpp >> config.log 2>&1; then
+      echo "yes"
+      export PKG_CXXFLAGS="${PKG_CXXFLAGS} -Xclang -fopenmp"
+      export PKG_LIBS="${PKG_LIBS} -lomp"
+      export R_OPENMP_ENABLED=1
+      export OPENMP_MODE="Xclang lomp"
+      return
+    else
+      echo "no"
+    fi
+
+
+    printf "%s" "* checking if R installation supports OpenMP with \"-fopenmp\" ... "
+    if CXXFLAGS="${CXXFLAGS} -fopenmp" "${R_HOME}/bin/R" CMD SHLIB test-omp.cpp >> config.log 2>&1; then
+      echo "yes"
+      export PKG_CXXFLAGS="${PKG_CXXFLAGS} -fopenmp"
+      export R_OPENMP_ENABLED=1
+       export OPENMP_MODE="fopenmp"
+      return
+    else
+      echo "no"
+    fi
+
+    if [ "$(uname -m)" = "arm64" ]; then
+      HOMEBREW_PREFIX=/opt/homebrew
+    else
+      HOMEBREW_PREFIX=/usr/local
+    fi
+
+    if [ -e "${HOMEBREW_PREFIX}/opt/libomp" ]; then
+      printf "%s" "* checking if libomp installation at ${HOMEBREW_PREFIX}/opt/libomp can be used... "
+      LIBOMP_INCLUDE="-I${HOMEBREW_PREFIX}/opt/libomp/include -Xclang -fopenmp"
+      LIBOMP_LINK="-Wl,-force_load,${HOMEBREW_PREFIX}/opt/libomp/lib/libomp.dylib -Wl,-rpath,${HOMEBREW_PREFIX}/opt/libomp/lib"
+      if ${CC} ${CFLAGS} ${LIBOMP_INCLUDE} ${LIBOMP_LINK} test-omp.c >> config.log 2>&1; then
+        echo "yes"
+
+        export PKG_CXXFLAGS="${PKG_CXXFLAGS} ${LIBOMP_INCLUDE}"
+
+        export PKG_LIBS="${PKG_LIBS} ${LIBOMP_LINK}"
+        export R_OPENMP_ENABLED=1
+        export OPENMP_MODE="Xclang fopenmp"
+        return
+      else
+        echo "no"
+      fi
+    fi
+
+  fi # uname=Darwin
+
+  # No support for OpenMP available
+  export R_OPENMP_ENABLED=0
+}
+
+detect_openmp
+
+## ---------------------------------------------------------
+## Build executable to query OpenMP runtime info
+## ---------------------------------------------------------
+if [ "$R_OPENMP_ENABLED" = "1" ]; then
+
+  if [ "`uname`" = "Darwin" ]; then
+    # macOS: must link OpenMP runtime explicitly
+    ${CXX} ${CXXFLAGS} ${PKG_CXXFLAGS} ${PKG_LIBS} test-omp.cpp -o test-omp.exe >> config.log 2>&1
+  else
+    # Linux
+    ${CXX} ${CXXFLAGS} ${PKG_CXXFLAGS} test-omp.cpp -o test-omp.exe >> config.log 2>&1
+  fi
+
+  if [ $? -eq 0 ]; then
+    OMP_INFO=`./test-omp.exe 2>/dev/null`
+    OMP_PROCS=`echo "$OMP_INFO" | sed -n 's/OPENMP_NUM_PROCS=//p'`
+    OMP_MAX=`echo "$OMP_INFO" | sed -n 's/OPENMP_MAX_THREADS=//p'`
+  fi
+fi
+
+rm -f test-omp.exe test-omp.o test-omp.so test-omp.c
+
+## ---------------------------------------------------------
+## Report OpenMP status (FORMAT FIXED AS REQUESTED)
+## ---------------------------------------------------------
+if [ "$R_OPENMP_ENABLED" = "1" ]; then
+  echo "* OpenMP enabled"
+  echo "* OpenMP mode         : ${OPENMP_MODE}"
+  echo "* available processors: ${OMP_PROCS}"
+  echo "* runtime max threads : ${OMP_MAX}"
+  echo "* note                : actual threads are controlled by OMP_NUM_THREADS or function arguments"
+  # echo ${PKG_CXXFLAGS}
+
+  # echo $(uname)
+else
+  echo "*** OpenMP not available"
+  echo "*** compiling in single-thread mode"
+fi
+
+## ---------------------------------------------------------
+## Make an src/Makevars
+## ---------------------------------------------------------
+# echo "zlib_libs: "  ${zlib_libs}
+# echo "PKG_CXXFLAGS: " ${PKG_CXXFLAGS}
+# echo "PKG_LIBS: " ${PKG_LIBS}
+
+if [ "$R_OPENMP_ENABLED" = "1" ]; then
+  sed \
+    -e "s|@openmp_flags@|\$(SHLIB_OPENMP_CXXFLAGS)|" \
+    -e "s|@openmp_libs@|\$(SHLIB_OPENMP_CXXFLAGS)|" \
+    -e "s|@zlib_libs@|${zlib_libs}|" \
+    src/Makevars.in > src/Makevars
+else
+  sed \
+    -e "s|@openmp_flags@||" \
+    -e "s|@zlib_libs@|${zlib_libs}|" \
+    src/Makevars.in > src/Makevars
+fi
+sed -e "s|@PKG_CXXFLAGS@|$PKG_CXXFLAGS|" src/Makevars > src/Makevars.tmp && mv src/Makevars.tmp src/Makevars
+sed -e "s|@PKG_LIBS@|$PKG_LIBS|" src/Makevars > src/Makevars.tmp && mv src/Makevars.tmp src/Makevars
+#cat src/Makevars
+exit 0
