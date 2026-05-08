@@ -12,9 +12,9 @@ pairend(
   min_overlap = 10L,
   max_mismatches = 5L,
   compress_output = FALSE,
-  return_list = FALSE,
-  lambda = 0.5,
-  score_threshold = 0,
+  enable_oes_test = TRUE,
+  alpha = 1,
+  beta = -1,
   n_threads = 4L,
   batch_size = 1000000L
 )
@@ -42,9 +42,12 @@ within the overlapping region between the two reads.}
 \item{compress_output}{(logical) if \code{TRUE}, write the output FASTQ file
 in gzip format regardless of the suffix of \code{out_file}.}
 
-\item{return_list}{(logical) if \code{TRUE}, the function returns results
-as an R list instead of writing to a file. In the current implementation,
-this argument is reserved and output is written to disk.}
+\item{n_threads}{(integer) number of parallel threads used for merging.
+When OpenMP is available, multi-threading accelerates overlap detection
+and merging within each processed batch.}
+
+\item{batch_size}{(integer) number of read pairs processed per batch.
+Larger batch sizes reduce I/O overhead but increase memory usage.}
 
 \item{lambda}{(double) penalty weight applied to mismatches during overlap
 scoring. This parameter controls the mismatch contribution to the overlap
@@ -52,13 +55,6 @@ score returned by the algorithm.}
 
 \item{score_threshold}{(double) minimum overlap score required for accepting
 a merged read. Merged reads with scores below this threshold are discarded.}
-
-\item{n_threads}{(integer) number of parallel threads used for merging.
-When OpenMP is available, multi-threading accelerates overlap detection
-and merging within each processed batch.}
-
-\item{batch_size}{(integer) number of read pairs processed per batch.
-Larger batch sizes reduce I/O overhead but increase memory usage.}
 }
 \value{
 Invisibly returns \code{NULL}. The merged reads are written to

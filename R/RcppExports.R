@@ -67,10 +67,6 @@ count_records <- function(input_file) {
 #' @param primer_mismatch (integer) maximum number of mismatches allowed when
 #'   matching primers. Tag matching does not allow mismatches.
 #'
-#' @param return_list (logical) if \code{TRUE}, the function returns summary
-#'   information as an R list instead of writing only to disk. In the current
-#'   implementation this argument is reserved and output is written to disk.
-#'
 #' @return
 #' Invisibly returns \code{NULL}. Identified reads are written to
 #' \code{identified_output}, whereas unmatched reads are written to
@@ -78,8 +74,8 @@ count_records <- function(input_file) {
 #' JSON block in the header containing experiment, sample, tag, primer matches,
 #' and mismatch counts.
 #' @export
-demultiplex <- function(fastq_file, primer_table, identified_output, unidentified_output, n_threads = 4L, with_tag = TRUE, compress_output = FALSE, compress_level = 6L, primer_mismatch = 3L, return_list = FALSE) {
-    invisible(.Call(`_METAeDNA_demultiplex`, fastq_file, primer_table, identified_output, unidentified_output, n_threads, with_tag, compress_output, compress_level, primer_mismatch, return_list))
+demultiplex <- function(fastq_file, primer_table, identified_output, unidentified_output, n_threads = 4L, with_tag = TRUE, compress_output = FALSE, compress_level = 6L, primer_mismatch = 3L) {
+    invisible(.Call(`_METAeDNA_demultiplex`, fastq_file, primer_table, identified_output, unidentified_output, n_threads, with_tag, compress_output, compress_level, primer_mismatch))
 }
 
 #' Denoise FASTA sequences using abundance and local sequence similarity
@@ -185,9 +181,6 @@ denoise <- function(input_fasta, output_fasta, sequence_min_L = 1L, sequence_max
 #' @param compress_output (logical) if \code{TRUE}, write the output FASTQ file
 #'   in gzip format regardless of the suffix of \code{out_file}.
 #'
-#' @param return_list (logical) if \code{TRUE}, the function returns results
-#'   as an R list instead of writing to a file. In the current implementation,
-#'   this argument is reserved and output is written to disk.
 #'
 #' @param lambda (double) penalty weight applied to mismatches during overlap
 #'   scoring. This parameter controls the mismatch contribution to the overlap
@@ -209,8 +202,8 @@ denoise <- function(input_fasta, output_fasta, sequence_min_L = 1L, sequence_max
 #' quality string, and a JSON block appended to the identifier summarizing
 #' overlap size, mismatch count, and overlap score.
 #' @export
-pairend <- function(fastq_1, fastq_2, out_file, compress_level = 6L, min_overlap = 10L, max_mismatches = 5L, compress_output = FALSE, return_list = FALSE, lambda = 0.5, score_threshold = 0, n_threads = 4L, batch_size = 1000000L) {
-    invisible(.Call(`_METAeDNA_pairend`, fastq_1, fastq_2, out_file, compress_level, min_overlap, max_mismatches, compress_output, return_list, lambda, score_threshold, n_threads, batch_size))
+pairend <- function(fastq_1, fastq_2, out_file, compress_level = 6L, min_overlap = 10L, max_mismatches = 5L, compress_output = FALSE, enable_oes_test = TRUE, alpha = 1.0, beta = -1.0, n_threads = 4L, batch_size = 1000000L) {
+    invisible(.Call(`_METAeDNA_pairend`, fastq_1, fastq_2, out_file, compress_level, min_overlap, max_mismatches, compress_output, enable_oes_test, alpha, beta, n_threads, batch_size))
 }
 
 #' Collapse duplicate sequences in a FASTA/FASTQ file

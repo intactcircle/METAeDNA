@@ -13,8 +13,7 @@ demultiplex(
   with_tag = TRUE,
   compress_output = FALSE,
   compress_level = 6L,
-  primer_mismatch = 3L,
-  return_list = FALSE
+  primer_mismatch = 3L
 )
 }
 \arguments{
@@ -49,10 +48,6 @@ applied when writing compressed output.}
 
 \item{primer_mismatch}{(integer) maximum number of mismatches allowed when
 matching primers. Tag matching does not allow mismatches.}
-
-\item{return_list}{(logical) if \code{TRUE}, the function returns summary
-information as an R list instead of writing only to disk. In the current
-implementation this argument is reserved and output is written to disk.}
 }
 \value{
 Invisibly returns \code{NULL}. Identified reads are written to
