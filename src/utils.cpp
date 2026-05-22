@@ -302,6 +302,9 @@ double oes_test(double q, int omega, double oes, double alpha, double beta, int 
 	const double one_minus_q = 1.0 - q;
 	const double ratio = q / one_minus_q;
 	long double p = 1.0;
+    //
+    long double one_minus_q_power =
+        std::pow(one_minus_q, static_cast<double>(omega));
 
 	for (int i = omega; i <= max_length; ++i) {
 		int l_c = static_cast<int>(std::ceil((oes - beta * i) / (alpha - beta))) - 1;
@@ -314,7 +317,7 @@ double oes_test(double q, int omega, double oes, double alpha, double beta, int 
 		}
 
 		// term = C(i,0) * q^0 * (1-q)^i
-		long double term = std::pow(one_minus_q, static_cast<double>(i));
+        long double term = one_minus_q_power;  
 		long double sigma = term;
 
 		// 
@@ -328,6 +331,7 @@ double oes_test(double q, int omega, double oes, double alpha, double beta, int 
 		if (p <= 0.0) {
 			return 1.0;
 		}
+        one_minus_q_power *= one_minus_q; //next i (1-q)^(i+1)
 	}
     double return_p;
     return_p = (double)(1.0 - p * p) < 0 ? 0: (double)(1.0 - p * p);
@@ -576,13 +580,59 @@ void find_best_overlap(
                     ovl_score += Pr_same * alpha;
                 }
             }
-            else {
+            else if(b1 != b2 && correct_x != correct_y){
                 overlap_region.push_back(correct_x >= correct_y ? b1 : b2);
                 overlap_region_q.push_back(correct_x >= correct_y ? q1 : q2);
 
                 Pr_diff = cal_pr_diff(b1, b2, correct_x, correct_y, error_x, error_y, base_pb);
                 oes_score += Pr_diff * alpha + (1.0 - Pr_diff) * beta;
                 ovl_score += (1.0 - Pr_diff) * beta;
+            }
+			else if ((b1 != b2 && correct_x == correct_y)) { // when the quality scores are the same but bases differ, decide the consensus base based on the base probabilities.
+
+                double pb1 = 0.0;
+                double pb2 = 0.0;
+
+                switch (b1) {
+                case 'A': pb1 = base_pb.A; break;
+                case 'C': pb1 = base_pb.C; break;
+                case 'G': pb1 = base_pb.G; break;
+                case 'T': pb1 = base_pb.T; break;
+                default:  pb1 = 0.25;
+                }
+
+                switch (b2) {
+                case 'A': pb2 = base_pb.A; break;
+                case 'C': pb2 = base_pb.C; break;
+                case 'G': pb2 = base_pb.G; break;
+                case 'T': pb2 = base_pb.T; break;
+                default:  pb2 = 0.25;
+                }
+
+                if (pb1 >= pb2) {
+                    overlap_region.push_back(b1);
+                    overlap_region_q.push_back(q1);
+                }
+                else {
+                    overlap_region.push_back(b2);
+                    overlap_region_q.push_back(q2);
+                }
+
+                Pr_diff = cal_pr_diff(
+                    b1, b2,
+                    correct_x, correct_y,
+                    error_x, error_y,
+                    base_pb
+                );
+
+                oes_score +=
+                    Pr_diff * alpha +
+                    (1.0 - Pr_diff) * beta;
+
+                ovl_score +=
+                    (1.0 - Pr_diff) * beta;
+            
+
             }
         }
 
