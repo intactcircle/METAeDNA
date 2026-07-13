@@ -1,8 +1,8 @@
-# METAeDNA
+# METAeDNA (beta version)
 
 METAeDNA is an R package for environmental DNA metabarcoding workflows. It brings together paired-end read preprocessing, denoising, decontamination, reference-database construction, in-silico PCR, BLAST/VSEARCH wrappers, taxonomy querying, and diversity rarefaction/extrapolation in one reproducible analysis framework.
 
-The package is designed for marker-gene eDNA projects where users need to move from raw sequencing files to clean sequence tables, curated references, and taxonomic assignments while keeping intermediate results traceable.
+The package is designed for eDNA projects where users need to move from raw sequencing files to clean sequence tables, curated references, and taxonomic assignments while keeping intermediate results traceable.
 
 ## Features
 
