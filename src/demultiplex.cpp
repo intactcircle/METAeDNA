@@ -47,9 +47,10 @@ struct SampleInfo {
      std::set<std::pair<std::string, std::string >> unique_primer_pair;
      std::vector<size_t> fwd_pos, rev_pos;
      std::vector<bool> try_reverse;
+     std::vector<int> f_mismatch, r_mismatch;
 };
 struct hitInfo {
-    std::string fwd, rev, ftag, rtag, exp, sample;
+    std::string fwd, rev, ftag, rtag, exp, sample, direction;
     int f_mismatch, r_mismatch;
 };
 static void readPrimerFile(
@@ -90,6 +91,8 @@ static void readPrimerFile(
         // remove useless characters
         header.erase(0, header.find_first_not_of(" \t\r\n\"#"));
         header.erase(header.find_last_not_of(" \t\r\n\"") + 1);
+        if (header == "X.exp" || header == "experiment") header = "exp";
+        if (header == "sample_tag") header = "tags";
         columnNames.push_back(header);
     }
 
@@ -97,6 +100,15 @@ static void readPrimerFile(
     std::unordered_map<std::string, size_t> colIndex;
     for (size_t i = 0; i < columnNames.size(); ++i) {
         colIndex[columnNames[i]] = i;
+    }
+    const std::vector<std::string> required_cols = {
+        "exp", "sample", "forward_primer", "reverse_primer"
+    };
+    for (const auto& col : required_cols) {
+        if (!colIndex.count(col)) {
+            CERR << "[ERROR] Primer table missing required column: " << col << std::endl; // Check that the required columns exist
+            return;
+        }
     }
 
     // print debug info
@@ -128,12 +140,17 @@ static void readPrimerFile(
 
 		// check index and push back
         if (!row.empty()) {
-            if (colIndex.count("exp") && colIndex["exp"] < row.size()) {
-                dem_infos.exp.push_back(row[colIndex["exp"]]);
+            if (colIndex["exp"] >= row.size() ||
+                colIndex["sample"] >= row.size() ||
+                colIndex["forward_primer"] >= row.size() ||
+                colIndex["reverse_primer"] >= row.size()) {
+                CERR << "[Warning] Skipping incomplete primer table row: " << line << std::endl;
+                continue;
             }
-            if (colIndex.count("sample") && colIndex["sample"] < row.size()) {
-                dem_infos.sample.push_back(row[colIndex["sample"]]);
-            }
+
+            dem_infos.exp.push_back(row[colIndex["exp"]]);
+            dem_infos.sample.push_back(row[colIndex["sample"]]);
+
             if (colIndex.count("tags") && colIndex["tags"] < row.size()) {
                 std::string temp_tag = row[colIndex["tags"]];
                 for (auto& x : temp_tag) {
@@ -151,20 +168,21 @@ static void readPrimerFile(
                 }
 
             }
-            if (colIndex.count("forward_primer") && colIndex["forward_primer"] < row.size()) {
-                auto& primer = row[colIndex["forward_primer"]];
-                std::transform(primer.begin(), primer.end(), primer.begin(),
-                    [](unsigned char c) { return std::toupper(c); });
-                dem_infos.forward_primer.push_back(row[colIndex["forward_primer"]]);
-                
+            else {
+                dem_infos.ftags.push_back("");
+                dem_infos.rtags.push_back("");
             }
-            if (colIndex.count("reverse_primer") && colIndex["reverse_primer"] < row.size()) {
-                auto& primer = row[colIndex["reverse_primer"]];
-                std::transform(primer.begin(), primer.end(), primer.begin(),
-                    [](unsigned char c) { return std::toupper(c); });
-                dem_infos.reverse_primer.push_back(row[colIndex["reverse_primer"]]);
-               
-            }
+
+            auto& fwd_primer = row[colIndex["forward_primer"]];
+            std::transform(fwd_primer.begin(), fwd_primer.end(), fwd_primer.begin(),
+                [](unsigned char c) { return std::toupper(c); });
+            dem_infos.forward_primer.push_back(fwd_primer);
+
+            auto& rev_primer = row[colIndex["reverse_primer"]];
+            std::transform(rev_primer.begin(), rev_primer.end(), rev_primer.begin(),
+                [](unsigned char c) { return std::toupper(c); });
+            dem_infos.reverse_primer.push_back(rev_primer);
+
             primer_pair.push_back(std::make_pair(row[colIndex["forward_primer"]], row[colIndex["reverse_primer"]]));
         }
         //find unique primer pairs
@@ -188,12 +206,12 @@ std::vector<size_t> find_base_exact(const std::string& pattern, const std::strin
     size_t tsl = text.size();
     if (tsl < psl)
     {
-        COUT << "Pattern is longer than text, please use a shorter pattern." << std::endl;
+        COUT << "Pattern is longer than the target text." << std::endl;
         return {};
     }
     if (psl > 64)
     {
-        COUT << "Pattern is too long, please use a shorter pattern." << std::endl;
+        COUT << "Pattern exceeds the supported length." << std::endl;
         return {};
     }
     std::vector<size_t> positions;
@@ -424,6 +442,7 @@ std::string extract_tagged_seq(
         std::vector <std::string> forward, reverse;
         std::vector <size_t> fwd_pos, rev_pos;
         std::vector <bool> try_reverse;
+        std::vector <int> f_mismatch, r_mismatch;
     };
     // Store match data
     matchedInfo minfo;
@@ -460,6 +479,8 @@ std::string extract_tagged_seq(
 
             minfo.fwd_pos.push_back(fwd_pos[0]);
             minfo.rev_pos.push_back(rev_pos.back());
+            minfo.f_mismatch.push_back(hit_info.f_mismatch);
+            minfo.r_mismatch.push_back(hit_info.r_mismatch);
 
         }
     }
@@ -480,6 +501,8 @@ std::string extract_tagged_seq(
                 filtered_dem_infos.fwd_pos.push_back(minfo.fwd_pos[m]);
                 filtered_dem_infos.rev_pos.push_back(minfo.rev_pos[m]);
                 filtered_dem_infos.try_reverse.push_back(minfo.try_reverse[m]);
+                filtered_dem_infos.f_mismatch.push_back(minfo.f_mismatch[m]);
+                filtered_dem_infos.r_mismatch.push_back(minfo.r_mismatch[m]);
             }
         }
     }
@@ -546,6 +569,9 @@ std::string extract_tagged_seq(
                 hit_info.rev = filtered_dem_infos.reverse_primer[ind];
                 hit_info.sample = filtered_dem_infos.sample[ind];
                 hit_info.exp = filtered_dem_infos.exp[ind];
+                hit_info.direction = filtered_dem_infos.try_reverse[ind] ? "reverse" : "forward";
+                hit_info.f_mismatch = filtered_dem_infos.f_mismatch[ind];
+                hit_info.r_mismatch = filtered_dem_infos.r_mismatch[ind];
                 return temp_result;
 
             }
@@ -598,6 +624,9 @@ std::string extract_tagged_seq(
                 hit_info.rev = filtered_dem_infos.reverse_primer[ind];
                 hit_info.sample = filtered_dem_infos.sample[ind];
                 hit_info.exp = filtered_dem_infos.exp[ind];
+                hit_info.direction = filtered_dem_infos.try_reverse[ind] ? "reverse" : "forward";
+                hit_info.f_mismatch = filtered_dem_infos.f_mismatch[ind];
+                hit_info.r_mismatch = filtered_dem_infos.r_mismatch[ind];
                 return temp_result;
             }
         }
@@ -606,6 +635,32 @@ std::string extract_tagged_seq(
     }
     return "";
 
+}
+
+static std::string append_demultiplex_header(const std::string& raw_id, const hitInfo& hit_info, bool with_tag) {
+    std::string clean_id = raw_id;
+    if (!clean_id.empty() && clean_id[0] == '@') {
+        clean_id.erase(0, 1);
+    }
+
+    std::ostringstream block;
+    block << "\"demultiplex\":{\"sample\":\"" << hit_info.sample
+        << "\",\"exp\":\"" << hit_info.exp
+        << "\",\"direction\":\"" << hit_info.direction
+        << "\",\"tag\":\"" << (with_tag ? hit_info.ftag + "+" + hit_info.rtag : "none")
+        << "\",\"fwd\":\"" << hit_info.fwd
+        << "\",\"rev\":\"" << hit_info.rev
+        << "\",\"fwd_mismatch\":\"" << hit_info.f_mismatch
+        << "\",\"rev_mismatch\":\"" << hit_info.r_mismatch
+        << "\"}";
+
+    size_t json_start = clean_id.find('{');
+    if (json_start != std::string::npos && !clean_id.empty() && clean_id.back() == '}') {
+        clean_id.pop_back();
+        return ">" + clean_id + "," + block.str() + "}\n";
+    }
+
+    return ">" + clean_id + ";{" + block.str() + "}\n";
 }
 
 // ------------------------------
@@ -622,8 +677,11 @@ std::string extract_tagged_seq(
 //'   plain text or gzip-compressed (suffix \code{.gz}).
 //'
 //' @param primer_table (character) path to a CSV/TSV file containing primer and
-//'   tag definitions. This table must include experiment names, sample names,
-//'   forward and reverse primers, and optional tag sequences.
+//'   tag definitions. The preferred columns are \code{experiment},
+//'   \code{sample}, \code{sample_tag}, \code{forward_primer}, and
+//'   \code{reverse_primer}. The legacy names \code{exp} and \code{tags} are
+//'   also accepted. A paired tag is written as
+//'   \code{forward_tag:reverse_tag}; a single tag is used for both directions.
 //'
 //' @param identified_output (character) path to the output file that receives
 //'   reads successfully assigned to a sample. If \code{compress_output = TRUE}
@@ -682,6 +740,18 @@ void demultiplex( std::string fastq_file,  std::string primer_table,
     // ------------------------------
     SampleInfo infos;
     readPrimerFile(primer_table, infos);
+    if (infos.forward_primer.empty() || infos.reverse_primer.empty()) {
+        CERR << "[Error] No valid primer definitions were loaded." << std::endl;
+        return;
+    }
+    if (with_tag) {
+        for (size_t i = 0; i < infos.ftags.size(); ++i) {
+            if (infos.ftags[i].empty() || infos.rtags[i].empty()) {
+                CERR << "[Error] with_tag = TRUE requires a non-empty sample_tag/tags column for every primer-table row." << std::endl;
+                return;
+            }
+        }
+    }
 
     // ------------------------------
     // 2. detect file type
@@ -695,6 +765,10 @@ void demultiplex( std::string fastq_file,  std::string primer_table,
     }
     else {
         fp_plain = fopen(fastq_file.c_str(), "rb");
+    }
+    if ((is_gz_in && fp_gz == nullptr) || (!is_gz_in && fp_plain == nullptr)) {
+        CERR << "[Error] Cannot open input file: " << fastq_file << std::endl;
+        return;
     }
     /*
     
@@ -730,6 +804,17 @@ void demultiplex( std::string fastq_file,  std::string primer_table,
     else {
         out_plain_id = fopen(identified_output.c_str(), "wb");
         out_plain_un = fopen(unidentified_output.c_str(), "wb");
+    }
+    if ((is_gz_out && (out_gz_id == nullptr || out_gz_un == nullptr)) ||
+        (!is_gz_out && (out_plain_id == nullptr || out_plain_un == nullptr))) {
+        CERR << "[Error] Cannot open one or more output files." << std::endl;
+        if (fp_plain) fclose(fp_plain);
+        if (fp_gz) gzclose(fp_gz);
+        if (out_plain_id) fclose(out_plain_id);
+        if (out_plain_un) fclose(out_plain_un);
+        if (out_gz_id) gzclose(out_gz_id);
+        if (out_gz_un) gzclose(out_gz_un);
+        return;
     }
     /*
     auto writeBuf = [&](const std::string& buf, bool identified) {
@@ -802,17 +887,7 @@ void demultiplex( std::string fastq_file,  std::string primer_table,
                 local.reserve(sub_seq.size() + 256);
                     if (sub_seq.empty()) matched = false;
                     if (matched) {
-                       
-
-                        local = ">" + r.id.substr(1, r.id.size() - 1)
-                            + "{\"demultiplex\":{\"sample\":\"" + hit_info.sample
-                            + "\",\"exp\":\"" + hit_info.exp
-                            + "\",\"tag\":\"" + (with_tag ? hit_info.ftag + "+" + hit_info.rtag : "none")
-                            + "\",\"fwd\":\"" + hit_info.fwd
-                            + "\",\"rev\":\"" + hit_info.rev
-                            + "\",\"fwd_mismatch\":\"" + std::to_string(hit_info.f_mismatch)
-                            + "\",\"rev_mismatch\":\"" + std::to_string(hit_info.r_mismatch)
-                            + "\"}\n"
+                        local = append_demultiplex_header(r.id, hit_info, with_tag)
                             + sub_seq + "\n";
                     }
                     else { 

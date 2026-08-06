@@ -1,9 +1,8 @@
 CXX_STD = CXX17
-MAKEFLAGS = -j4
-CXXFLAGS = -O2 -Wall -pipe -march=native -mtune=native
-# 自动排除 main.cpp
-OBJECTS = $(filter-out main.o,$(patsubst %.cpp,%.o,$(wildcard *.cpp)))
+OBJECTS = RcppExports.o accession_import.o count.o demultiplex.o denoise.o pairend.o seq_compare.o unique.o utils.o
 
-PKG_CPPFLAGS = -DUSE_RCPP_OUTPUT  $(SHLIB_OPENMP_CXXFLAGS)
-PKG_CXXFLAGS = $(SHLIB_OPENMP_CXXFLAGS)
-PKG_LIBS += -static -static-libgcc -static-libstdc++ -Wl,--strip-all -lz -llzma
+PKG_CPPFLAGS = -DUSE_RCPP_OUTPUT
+
+PKG_CXXFLAGS = -fopenmp
+
+PKG_LIBS = -lz -llzma  -fopenmp

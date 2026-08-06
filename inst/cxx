@@ -1,2 +1,0 @@
-CXX=g++ -std=gnu++17
-CXXFLAGS=-g -O2

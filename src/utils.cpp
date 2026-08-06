@@ -245,6 +245,70 @@ extern const std::vector<double> QUALITY_WEIGHT_TABLE = build_quality_table();
 //-------------------------------------------------------------------
 
 
+size_t find_overlap_with_mismatches(
+    const std::string& s1,
+    const std::string& s2,
+    bool& is_offset,
+    size_t min_overlap,
+    size_t max_mismatches,
+    size_t& mismatch_count,
+    size_t mismatch_positions[1000]
+) {
+    size_t max_possible = std::min(s1.size(), s2.size());
+    mismatch_count = 0;
+    is_offset = false;
+    if (max_possible < min_overlap) {
+        return 0;
+    }
+
+    auto count_mismatches = [&](const std::string& left,
+                                size_t left_start,
+                                const std::string& right,
+                                size_t right_start,
+                                size_t overlap,
+                                size_t& mismatches) -> bool {
+        mismatches = 0;
+        for (size_t i = 0; i < overlap; ++i) {
+            if (left[left_start + i] != right[right_start + i]) {
+                if (mismatches < 1000) {
+                    mismatch_positions[mismatches] = i;
+                }
+                ++mismatches;
+                if (mismatches > max_mismatches) {
+                    return false;
+                }
+            }
+        }
+        return true;
+    };
+
+    for (size_t L = max_possible; L >= min_overlap; --L) {
+        size_t mismatches = 0;
+
+        // R1 suffix overlaps R2 prefix.
+        if (count_mismatches(s1, s1.size() - L, s2, 0, L, mismatches)) {
+            mismatch_count = mismatches;
+            is_offset = false;
+            return L;
+        }
+
+        // R2 suffix overlaps R1 prefix.
+        if (count_mismatches(s2, s2.size() - L, s1, 0, L, mismatches)) {
+            mismatch_count = mismatches;
+            is_offset = true;
+            return L;
+        }
+
+        if (L == min_overlap) {
+            break;
+        }
+    }
+
+    mismatch_count = 0;
+    is_offset = false;
+    return 0;
+}
+
 inline double cal_pr_diff(
     char x, char y,
     double correct_x, double correct_y,
@@ -282,10 +346,10 @@ inline double cal_pr_diff(
         }
     }
 
-    double term1 = correct_y * error_x * (py / sum_not_x);
-    double term2 = correct_x * error_y * (px / sum_not_y);
-    double term3 = error_x * error_y *
-        (sum_sq_not_xy / (sum_not_xy * sum_not_xy));
+    double term1 = sum_not_x > 0.0 ? correct_y * error_x * (py / sum_not_x) : 0.0;
+    double term2 = sum_not_y > 0.0 ? correct_x * error_y * (px / sum_not_y) : 0.0;
+    double term3 = sum_not_xy > 0.0 ? error_x * error_y *
+        (sum_sq_not_xy / (sum_not_xy * sum_not_xy)) : 0.0;
 
     return term1 + term2 + term3;
 }
@@ -343,15 +407,12 @@ void find_best_overlap(
     const FastqRecord& r2,
     const base_probability& base_pb,
     const size_t& min_overlap,
-    const size_t max_mismatches,
     size_t& mismatch_count,
     size_t& overlap_length,
     double& overlap_score,
     FastqRecord& merged_rec,
     double& p_value,
-    double alpha, double beta,
-    bool enable_oes_test,
-    bool MAP
+    double alpha, double beta
 ) {
     int r1_size = static_cast<int>(r1.seq.size());
     int r2_size = static_cast<int>(r2.seq.size());
@@ -370,117 +431,9 @@ void find_best_overlap(
     merged_rec.qual.clear();
     merged_rec.id = r1.id;
     merged_rec.plus = r1.plus;
-    /*
-    // Non-OES mode: use the original overlap-by-mismatch strategy.
-    if (!enable_oes_test) {
-        bool is_offset = false;
-        size_t mismatch_positions[1000];
-        mismatch_count = 0;
-        p_value = 0.0;
-
-        size_t ovl = find_overlap_with_mismatches(
-            r1.seq, r2_reverse, is_offset,
-            min_overlap, max_mismatches,
-            mismatch_count, mismatch_positions
-        );
-
-        overlap_length = ovl;
-        overlap_score = 0.0;
-
-        if (ovl > 0) {
-            std::string mergedSeq, mergedQual;
-            double score = 0.0;
-
-            if (mismatch_count > 0) {
-                std::string prefixSeq, prefixQl, overlapSeq, overlapQl;
-
-                if (is_offset) {
-                    prefixSeq = r2_reverse.substr(0, r2_reverse.size() - ovl);
-                    prefixQl = r2_q_reverse.substr(0, r2_q_reverse.size() - ovl);
-                    overlapSeq = r2_reverse.substr(r2_reverse.size() - ovl, ovl);
-                    overlapQl = r2_q_reverse.substr(r2_q_reverse.size() - ovl, ovl);
-
-                    for (size_t p = 0; p < mismatch_count; ++p) {
-                        char b2 = r1.seq[mismatch_positions[p]];
-                        char q1 = overlapQl[mismatch_positions[p]];
-                        char q2 = r1.qual[mismatch_positions[p]];
-                        if (q2 > q1) {
-                            overlapSeq[mismatch_positions[p]] = b2;
-                            overlapQl[mismatch_positions[p]] = q2;
-                        }
-                    }
-
-                    score = calculate_overlap_score(
-                        r2_reverse, r2_q_reverse,
-                        r1.seq, r1.qual,
-                        r2_reverse.size() - ovl,
-                        ovl
-                    );
-
-                    mergedSeq = prefixSeq + overlapSeq + r1.seq.substr(ovl);
-                    mergedQual = prefixQl + overlapQl + r1.qual.substr(ovl);
-                }
-                else {
-                    prefixSeq = r1.seq.substr(0, r1.seq.size() - ovl);
-                    prefixQl = r1.qual.substr(0, r1.qual.size() - ovl);
-                    overlapSeq = r1.seq.substr(r1.seq.size() - ovl, ovl);
-                    overlapQl = r1.qual.substr(r1.qual.size() - ovl, ovl);
-
-                    for (size_t p = 0; p < mismatch_count; ++p) {
-                        char b2 = r2_reverse[mismatch_positions[p]];
-                        char q1 = overlapQl[mismatch_positions[p]];
-                        char q2 = r2_q_reverse[mismatch_positions[p]];
-                        if (q2 > q1) {
-                            overlapSeq[mismatch_positions[p]] = b2;
-                            overlapQl[mismatch_positions[p]] = q2;
-                        }
-                    }
-
-                    score = calculate_overlap_score(
-                        r1.seq, r1.qual,
-                        r2_reverse, r2_q_reverse,
-                        r1.seq.size() - ovl,
-                        ovl
-                    );
-
-                    mergedSeq = prefixSeq + overlapSeq + r2_reverse.substr(ovl);
-                    mergedQual = prefixQl + overlapQl + r2_q_reverse.substr(ovl);
-                }
-            }
-            else {
-                if (is_offset) {
-                    mergedSeq = r2_reverse + r1.seq.substr(ovl);
-                    mergedQual = r2_q_reverse + r1.qual.substr(ovl);
-                }
-                else {
-                    mergedSeq = r1.seq + r2_reverse.substr(ovl);
-                    mergedQual = r1.qual + r2_q_reverse.substr(ovl);
-                }
-                score = 1.0;
-            }
-
-            merged_rec.seq = std::move(mergedSeq);
-            merged_rec.qual = std::move(mergedQual);
-            overlap_score = score;
-            overlap_length = ovl;
-        }
-        else {
-            merged_rec.seq.reserve(r1.seq.size() + r2_reverse.size());
-            merged_rec.qual.reserve(r1.qual.size() + r2_q_reverse.size());
-            merged_rec.seq += r1.seq;
-            merged_rec.seq += r2_reverse;
-            merged_rec.qual += r1.qual;
-            merged_rec.qual += r2_q_reverse;
-
-            overlap_score = 0.0;
-            overlap_length = 0;
-            mismatch_count = 0;
-        }
-
-        return;
-    }
-    */
-    // OES mode: use the PEAR-style scoring and OES filtering.
+    // PEAR OES mode: score all candidate overlaps and filter the best one
+    // with the default OES test. max_mismatches is applied later as an
+    // additional METAeDNA filter, not as part of the PEAR p-value.
     double q = base_pb.A * base_pb.A +
         base_pb.C * base_pb.C +
         base_pb.G * base_pb.G +
@@ -669,7 +622,7 @@ void find_best_overlap(
 
     p_value = oes_test(
         q,
-        MAP ? static_cast<int>(best_length) : static_cast<int>(min_overlap),
+        static_cast<int>(min_overlap),
         best_oes_score,
         alpha,
         beta,
@@ -875,20 +828,38 @@ int detect_system_threads() {
 // Base probability
 
 
- base_probability calculate_base_probabilities(const std::vector <FastqRecord>& rec_v) {
+static void add_base_counts(
+    const FastqRecord& rec,
+    size_t freq[256],
+    double& total_length,
+    int& max_length,
+    bool reverse_complement
+) {
+    int temp_length = 0;
+    const auto& comp_table = get_comp_table();
+    for (unsigned char c : rec.seq) {
+        ++temp_length;
+        unsigned char counted = reverse_complement && comp_table[c] ? comp_table[c] : c;
+        ++freq[counted];
+        ++total_length;
+    }
+    max_length = temp_length > max_length ? temp_length : max_length;
+}
+
+base_probability calculate_base_probabilities(const std::vector <FastqRecord>& rec_v) {
     base_probability base_pb{0.0, 0.0, 0.0, 0.0, 0.0};
     double total_length = 0;
     size_t freq[256] = { 0 };
     int max_length = 0;
     for (const FastqRecord &rec:  rec_v) {
-        int temp_length = 0;
-        std::string_view sv(rec.seq);
-        for (unsigned char c : sv) {
-            temp_length++;
-            ++freq[c];
-            total_length++;
-        }
-		max_length = temp_length > max_length ? temp_length : max_length;
+        add_base_counts(rec, freq, total_length, max_length, false);
+    }
+    if (total_length <= 0.0) {
+        base_pb.A = base_pb.T = base_pb.C = base_pb.G = 0.25;
+        base_pb.N = 0.0;
+        base_pb.A_sqr = base_pb.T_sqr = base_pb.C_sqr = base_pb.G_sqr = 1.0 / 9.0;
+        base_pb.max_length = 0;
+        return base_pb;
     }
     
     base_pb.A = static_cast<double>(freq['A'] + freq['a']) / total_length;
@@ -898,11 +869,70 @@ int detect_system_threads() {
     base_pb.N = static_cast<double>(freq['N'] + freq['n']) / total_length;
 	
     // ------
-    base_pb.A_sqr = (base_pb.A * base_pb.A) / ((base_pb.T + base_pb.C + base_pb.G) * (base_pb.T + base_pb.C + base_pb.G));
-    base_pb.T_sqr = (base_pb.T * base_pb.T) / ((base_pb.A + base_pb.C + base_pb.G) * (base_pb.A + base_pb.C + base_pb.G));
-    base_pb.C_sqr = (base_pb.C * base_pb.C) / ((base_pb.A + base_pb.T + base_pb.G) * (base_pb.A + base_pb.T + base_pb.G));
-    base_pb.G_sqr = (base_pb.G * base_pb.G) / ((base_pb.A + base_pb.C + base_pb.T) * (base_pb.A + base_pb.C + base_pb.T));
+    double denom_A = (base_pb.T + base_pb.C + base_pb.G) * (base_pb.T + base_pb.C + base_pb.G);
+    double denom_T = (base_pb.A + base_pb.C + base_pb.G) * (base_pb.A + base_pb.C + base_pb.G);
+    double denom_C = (base_pb.A + base_pb.T + base_pb.G) * (base_pb.A + base_pb.T + base_pb.G);
+    double denom_G = (base_pb.A + base_pb.C + base_pb.T) * (base_pb.A + base_pb.C + base_pb.T);
+    base_pb.A_sqr = denom_A > 0.0 ? (base_pb.A * base_pb.A) / denom_A : 0.0;
+    base_pb.T_sqr = denom_T > 0.0 ? (base_pb.T * base_pb.T) / denom_T : 0.0;
+    base_pb.C_sqr = denom_C > 0.0 ? (base_pb.C * base_pb.C) / denom_C : 0.0;
+    base_pb.G_sqr = denom_G > 0.0 ? (base_pb.G * base_pb.G) / denom_G : 0.0;
     //
     base_pb.max_length = max_length;
 	return base_pb;
+}
+
+base_probability calculate_base_probabilities(
+    const std::vector<FastqRecord>& rec_v1,
+    const std::vector<FastqRecord>& rec_v2,
+    bool reverse_complement_r2
+) {
+    std::vector<FastqRecord> rec_v;
+    rec_v.reserve(rec_v1.size() + rec_v2.size());
+    rec_v.insert(rec_v.end(), rec_v1.begin(), rec_v1.end());
+
+    if (!reverse_complement_r2) {
+        rec_v.insert(rec_v.end(), rec_v2.begin(), rec_v2.end());
+        return calculate_base_probabilities(rec_v);
+    }
+
+    base_probability base_pb{0.0, 0.0, 0.0, 0.0, 0.0};
+    double total_length = 0;
+    size_t freq[256] = { 0 };
+    int max_length = 0;
+
+    for (const FastqRecord& rec : rec_v1) {
+        add_base_counts(rec, freq, total_length, max_length, false);
+    }
+    // R2 is compared after reverse-complementing. Reversal does not change
+    // counts, but complementation swaps A/T and C/G, so count R2 in merged
+    // orientation before estimating the OES background match probability.
+    for (const FastqRecord& rec : rec_v2) {
+        add_base_counts(rec, freq, total_length, max_length, true);
+    }
+
+    if (total_length <= 0.0) {
+        base_pb.A = base_pb.T = base_pb.C = base_pb.G = 0.25;
+        base_pb.N = 0.0;
+        base_pb.A_sqr = base_pb.T_sqr = base_pb.C_sqr = base_pb.G_sqr = 1.0 / 9.0;
+        base_pb.max_length = 0;
+        return base_pb;
+    }
+
+    base_pb.A = static_cast<double>(freq['A'] + freq['a']) / total_length;
+    base_pb.T = static_cast<double>(freq['T'] + freq['t']) / total_length;
+    base_pb.C = static_cast<double>(freq['C'] + freq['c']) / total_length;
+    base_pb.G = static_cast<double>(freq['G'] + freq['g']) / total_length;
+    base_pb.N = static_cast<double>(freq['N'] + freq['n']) / total_length;
+
+    double denom_A = (base_pb.T + base_pb.C + base_pb.G) * (base_pb.T + base_pb.C + base_pb.G);
+    double denom_T = (base_pb.A + base_pb.C + base_pb.G) * (base_pb.A + base_pb.C + base_pb.G);
+    double denom_C = (base_pb.A + base_pb.T + base_pb.G) * (base_pb.A + base_pb.T + base_pb.G);
+    double denom_G = (base_pb.A + base_pb.C + base_pb.T) * (base_pb.A + base_pb.C + base_pb.T);
+    base_pb.A_sqr = denom_A > 0.0 ? (base_pb.A * base_pb.A) / denom_A : 0.0;
+    base_pb.T_sqr = denom_T > 0.0 ? (base_pb.T * base_pb.T) / denom_T : 0.0;
+    base_pb.C_sqr = denom_C > 0.0 ? (base_pb.C * base_pb.C) / denom_C : 0.0;
+    base_pb.G_sqr = denom_G > 0.0 ? (base_pb.G * base_pb.G) / denom_G : 0.0;
+    base_pb.max_length = max_length;
+    return base_pb;
 }

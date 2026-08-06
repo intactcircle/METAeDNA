@@ -4,7 +4,7 @@
 #'
 #' @name %>%
 #' @rdname pipe
-#' @keywords internal
+#' @noRd
 #' @export
 #' @importFrom magrittr %>%
 #' @importFrom dplyr select filter mutate arrange group_by summarise distinct rename case_when join_by left_join full_join right_join inner_join anti_join

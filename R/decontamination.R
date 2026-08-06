@@ -22,6 +22,8 @@
 #' @param control_names A character vector giving blank types (e.g. `c("FB","EB","PB")`).
 #'
 #' @param threshold Numeric threshold used in methods "threshold" and "both_threshold".
+#' @param remove_status Logical; remove rows with zero abundance after
+#'   decontamination when \code{TRUE}.
 #'
 #' @return The input \code{seq_table} with blank-corrected abundance columns.
 #'
@@ -33,7 +35,6 @@
 #'
 #' @export
 #'
-#' @examples 1
 decontamination <- function(seq_table, control_table, method = c("maximum", "threshold","mean","both_threshold"), control_names = NULL, threshold = 10, remove_status = TRUE){
   method <- match.arg(method)
   # control_names <- c("FB","EB","PB")
@@ -177,20 +178,16 @@ decontamination <- function(seq_table, control_table, method = c("maximum", "thr
 #' }
 #'
 #' @export
-merge_replicate <- function(seq_table, control_table, method = c("mean_rra", "max_rra", "both_occur"), repeat_times = 1, present_absent = FALSE, remove_all_zero = T){
+merge_replicate <- function(seq_table, control_table, method = c("mean_rra", "max_rra", "both_occur"), repeat_times = 1, present_absent = FALSE, remove_all_zero = TRUE){
   method <- match.arg(method)
-  rm_col <- (seq_table %>% select(all_of(contains("count_"))) %>% colSums()) == 0
+  rm_col <- (seq_table %>% select(contains("count_")) %>% colSums()) == 0
   seq_table <- seq_table %>% select(-any_of(names(rm_col)[rm_col]))
   sample_table <- control_table %>% filter(category == "sample")
-  sample_name <- c(sample_table$sample) %>% unique
-  group_name <- sample_table$group %>% unique
-  for(gn in group_name){
-    for(sn in sample_name){
+  sample_pairs <- sample_table %>% distinct(group, sample)
+  for(pair_id in seq_len(nrow(sample_pairs))){
+      gn <- sample_pairs$group[[pair_id]]
+      sn <- sample_pairs$sample[[pair_id]]
       merge_tags <- sample_table %>% filter(group == gn, sample == sn )
-      if(nrow(merge_tags) == 0 ){
-        seq_table <- seq_table %>% mutate(!!paste(gn,sn,sep = '_') := 0)
-        next
-        }
       temp_res <- seq_table %>% select(any_of(paste0("count_", merge_tags$tag)))
       if( temp_res %>% ncol){
         rra_data <-  temp_res %>% mutate(across(any_of(paste0("count_", merge_tags$tag)), ~ .x/sum(.x))) %>%
@@ -207,15 +204,17 @@ merge_replicate <- function(seq_table, control_table, method = c("mean_rra", "ma
             }
           }
 
-        seq_table <- seq_table %>% mutate(!!paste(gn,sn,sep = '_') :=  rra_data) %>%
+        merged_column <- paste(gn, sn, sep = "_")
+        seq_table[[merged_column]] <- rra_data
+        seq_table <- seq_table %>%
           select(-any_of(paste0("count_", merge_tags$tag)))
 
       }else{
-        seq_table <- seq_table %>% mutate(!!paste(gn,sn,sep = '_') := 0)
+        merged_column <- paste(gn, sn, sep = "_")
+        seq_table[[merged_column]] <- 0
         next
       }
 
-    }
   }
   if(remove_all_zero){
     seq_table <- seq_table[((seq_table %>% select(any_of(paste0(sample_table$group, "_", sample_table$sample))) %>% apply(1, sum)) >0),]
@@ -269,7 +268,7 @@ merge_replicate <- function(seq_table, control_table, method = c("mean_rra", "ma
 #'
 #' @importFrom dplyr %>% select filter mutate across bind_rows bind_cols everything
 #'
-#' @importFrom ggplot2 ggplot geom_line geom_point scale_x_continuous
+#' @importFrom ggplot2 aes ggplot geom_line geom_point scale_x_continuous
 #'   scale_y_continuous labs theme element_text element_blank element_rect
 #'
 #' @importFrom grid unit
@@ -278,6 +277,7 @@ merge_replicate <- function(seq_table, control_table, method = c("mean_rra", "ma
 #' @importFrom future.apply future_apply
 #'
 #' @importFrom purrr map_dfr
+#' @importFrom tidyselect contains matches
 #'
 #' @examples
 #' \dontrun{
@@ -288,21 +288,22 @@ merge_replicate <- function(seq_table, control_table, method = c("mean_rra", "ma
 #' }
 #'
 #' @export
-rarefaction_extrapolation <- function(temp_data, threads = 1, q = 0, endpoint = 50000,nboot = 20,x_limit = NULL, y_limit = NULL, show_legend = NULL,show_observed = F, show_extrapolation =F, x_title = "Reads",y_title = "Species richness ",
+rarefaction_extrapolation <- function(temp_data, threads = 1, q = 0, endpoint = 50000,nboot = 20,x_limit = NULL, y_limit = NULL, show_legend = NULL,show_observed = FALSE, show_extrapolation = FALSE, x_title = "Reads",y_title = "Species richness ",
                       based = c("size", "coverage")){
+  based <- match.arg(based)
 
-  plan(multisession, workers = threads)
-  on.exit(plan(sequential))
-  temp_data <- temp_data[(temp_data %>% colSums())>0]
-  inext_data <- future_apply(temp_data, MARGIN = 2, function(x) {
+  future::plan(future::multisession, workers = threads)
+  on.exit(future::plan(future::sequential), add = TRUE)
+  temp_data <- temp_data[, colSums(temp_data) > 0, drop = FALSE]
+  inext_data <- future.apply::future_apply(temp_data, MARGIN = 2, function(x) {
 
     x <- x[x > 0]
     inext_data <- iNEXT(
       x,
       datatype = "abundance",
       q = q,
-      endpoint = 150000,
-      nboot = 20
+      endpoint = endpoint,
+      nboot = nboot
     )
     bind_rows(
       bind_cols(inext_data$iNextEst$size_based, based = "size"),
@@ -310,29 +311,33 @@ rarefaction_extrapolation <- function(temp_data, threads = 1, q = 0, endpoint = 
     ) %>%
       return()
   }, future.seed = TRUE)
-  plan(sequential)
+  future::plan(future::sequential)
 
   final_inext_data <- inext_data %>% map_dfr(~ ., .id = "tag")
 
-  plt <- ggplot(data = final_inext_data %>% filter(based == based, Method == "Rarefaction"), aes(y = qD, x = m, colour = tag))+
+  rarefaction_data <- final_inext_data[final_inext_data$based == based & final_inext_data$Method == "Rarefaction", , drop = FALSE]
+  observed_data <- final_inext_data[final_inext_data$based == based & final_inext_data$Method == "Observed", , drop = FALSE]
+  extrapolation_data <- final_inext_data[final_inext_data$based == based & final_inext_data$Method == "Extrapolation", , drop = FALSE]
+
+  plt <- ggplot(data = rarefaction_data, aes(y = qD, x = m, colour = tag))+
     geom_line(alpha = 0.6, linewidth = 0.8)+
     {
       if(show_observed){
-        geom_point(data = final_inext_data %>% filter(based == based, Method == "Observed"),alpha = 0.6)
+        geom_point(data = observed_data, alpha = 0.6)
       }
     }+
     {
       if(show_extrapolation){
-        geom_line(data = final_inext_data %>% filter(based == based, Method == "Extrapolation"), linetype = "dashed",alpha = 0.6, linewidth = 0.8)
+        geom_line(data = extrapolation_data, linetype = "dashed",alpha = 0.6, linewidth = 0.8)
       }
     }+
     {
-      if(is.null(x_limit)){
+      if(!is.null(x_limit)){
         scale_x_continuous(limits = x_limit)
       }
     }+
     {
-    if(is.null(y_limit)){
+    if(!is.null(y_limit)){
       scale_y_continuous(limits = y_limit)
     }
     }+
@@ -353,4 +358,3 @@ rarefaction_extrapolation <- function(temp_data, threads = 1, q = 0, endpoint = 
     )
     return(list(inext_data = final_inext_data, fig = plt))
 }
-

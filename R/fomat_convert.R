@@ -28,7 +28,9 @@
 #'         }
 #'   \item Parses per-experiment and per-sample counts and status labels.
 #'         If \code{"denoise"} → \code{"by_sample"} is present, it is used;
-#'         otherwise the \code{"stat"} block is parsed.
+#'         otherwise scalar sample counts in the \code{"stat"} block are
+#'         converted to a \code{count} column and their status is set to
+#'         \code{NA}.
 #'   \item Constructs a long-format table with columns:
 #'         \code{experiment}, \code{sample}, \code{count}, \code{status},
 #'         \code{ID}, and \code{SEQ}.
@@ -59,18 +61,23 @@
 #' @importFrom Biostrings readDNAStringSet
 #' @importFrom dplyr mutate as_tibble group_by reframe left_join
 #'   rename_with ungroup relocate cur_group_id
-#' @importFrom furrr future_map2 future_map2_dfr furrr_options
+#' @importFrom furrr future_map_dfr furrr_options
 #' @importFrom tidyr pivot_wider
 #' @importFrom stringr str_extract str_remove str_replace_all str_detect
 #'
 #' @examples
 #' \dontrun{
-#' tbl <- fasta_to_table("denoised.fasta", threads = 4)
+#' tbl <- fasta_to_table(
+#'   "analysis_results/denoised_sequences.fasta",
+#'   threads = 4
+#' )
 #' head(tbl)
 #' }
 #'
 #' @export
 fasta_to_table <- function(fas_file, threads = 1){
+  old_plan <- future::plan()
+  on.exit(future::plan(old_plan), add = TRUE)
   if(threads == 1){
     plan(sequential)
   }else{
@@ -84,7 +91,9 @@ fasta_to_table <- function(fas_file, threads = 1){
 
   seq_id <- names(seq_vec)
   json_block_text <- str_extract(temp_name,"[{].*")
-  all_seq_df <- suppressWarnings(future_map2_dfr(json_block_text, seq_id, function(js_txt, sid) {
+  all_seq_df <- suppressWarnings(future_map_dfr(seq_along(seq_vec), function(i) {
+    js_txt <- json_block_text[[i]]
+    sid <- seq_id[[i]]
     if (is.na(js_txt) || js_txt == "") return(NULL)
     js <- fromJSON(js_txt)
 
@@ -92,17 +101,18 @@ fasta_to_table <- function(fas_file, threads = 1){
     if (is.null(js$denoise$by_sample)) {
 
       df <- map_dfr(js$stat$exp, function(expt){
-        map_dfr(expt$samples, as_tibble, .id = "sample")
+        map_dfr(expt$samples, function(sample_count) {
+          tibble::tibble(count = as.numeric(sample_count), status = NA_character_)
+        }, .id = "sample")
       }, .id = "experiment")
     }else{
       # experiment → sample → count/status
       df <- map_dfr(js$denoise$by_sample, function(expt)
         map_dfr(expt, as_tibble, .id = "sample"), .id = "experiment")
       }
-#browser()
     df %>%
       mutate(ID = sid,
-            SEQ = seq_vec[[sid]]) %>%
+            SEQ = unname(seq_vec[[i]])) %>%
       return()
   }))
   sum_reads <- all_seq_df %>% group_by(SEQ,experiment ) %>% reframe(total_count = sum(count))
@@ -154,9 +164,10 @@ fasta_to_table <- function(fas_file, threads = 1){
 #' The function performs the following steps:
 #' \itemize{
 #'   \item Reads all sequences using \code{Biostrings::readDNAStringSet()}.
-#'   \item Extracts accession numbers from GenBank-style headers. For legacy
-#'         \code{gi|} records, accession numbers are parsed from the embedded
-#'         \code{"gb|ACC|"} field.
+#'   \item Extracts accession numbers from each GenBank-style header. Legacy
+#'         \code{gi|} records are parsed individually from their embedded
+#'         \code{"gb|ACC|"} field, so legacy and ordinary accession headers may
+#'         be mixed in the same FASTA file.
 #'   \item Queries a local SQL taxonomy database to obtain:
 #'         \itemize{
 #'           \item taxonomic identifiers using \code{get_taxid()},
@@ -181,9 +192,9 @@ fasta_to_table <- function(fas_file, threads = 1){
 #' @examples
 #' \dontrun{
 #' format_to_dada(
-#'   input_fasta_file = "genbank_raw.fasta",
-#'   output_fasta_file = "dada2_ref.fasta",
-#'   sql_path = "taxonomy.sqlite",
+#'   input_fasta_file = "example_data/genbank_sequences.fasta",
+#'   output_fasta_file = "analysis_results/dada2_reference.fasta",
+#'   sql_path = "reference_databases/ncbi_taxonomy/taxonomy.sqlite",
 #'   show_elapsed = TRUE
 #' )
 #' }
@@ -191,22 +202,25 @@ fasta_to_table <- function(fas_file, threads = 1){
 #' @export
 format_to_dada <- function(input_fasta_file, output_fasta_file, sql_path, show_elapsed = T){
   start_time <- Sys.time()
-  if(show_elapsed) on.exit(show_time(sec = Sys.time() - start_time , mode =1))
+  if(show_elapsed) on.exit(show_time(secs = as.numeric(Sys.time() - start_time, units = "secs"), mode = 1))
   raw_seq <- readDNAStringSet(input_fasta_file)
 
   seq_acc <- raw_seq %>% names() %>% str_remove(" .*")
-  if(str_detect(seq_acc, "^gi") %>% all){
-    seq_acc <- seq_acc %>% str_extract("gb[|].*[|]") %>% str_remove("gb[|]") %>% str_remove("[|]")
+  gi_rows <- str_detect(seq_acc, "^gi[|]")
+  if(any(gi_rows)){
+    parsed_gi <- seq_acc[gi_rows] %>%
+      str_extract("gb[|][^|]+[|]") %>%
+      str_remove("^gb[|]") %>%
+      str_remove("[|]$")
+    seq_acc[gi_rows] <- parsed_gi
   }
   taxonomy_id <- get_taxid(sql_path = sql_path, seq_acc, show_elapsed = F)
 
   query_res <- get_taxonomy(sql_path = sql_path, tax_ids = taxonomy_id$taxid %>% unique, dereplicate = F, show_elapsed = F)
 
-  taxonomy_data <- left_join(taxonomy_id, query_res, by = join_by(taxid == query_tax_id)) %>%
+  taxonomy_data <- left_join(taxonomy_id, query_res, by = join_by(taxid == query_taxid)) %>%
     mutate(dada_name = paste(kingdom, phylum, class, order, family, genus, species, sep = ";"))
   names(raw_seq) <- taxonomy_data$dada_name %>% str_replace_all(" ", "_")
   show_time("Formatting names...")
   writeXStringSet(raw_seq, output_fasta_file)
 }
-
-

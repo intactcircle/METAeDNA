@@ -4,6 +4,8 @@ Version: 1.0.0
 Authors@R: 
     person("Yuan", "Luo", , "yuan_l@pku.edu.cn", role = c("aut", "cre"),
            comment = c(ORCID = "0000-0001-6936-5970"))
+Author: Yuan Luo [aut, cre] (<https://orcid.org/0000-0001-6936-5970>)
+Maintainer: Yuan Luo <yuan_l@pku.edu.cn>
 Description: METAeDNA is an R package for environmental DNA (eDNA) metabarcoding analysis. It provides an integrated workflow for sequence preprocessing and downstream analyses. Core sequence-processing steps are implemented in C++ with optional OpenMP parallelization for improved efficiency. Intermediate results are stored as structured JSON metadata embedded in FASTA headers, enabling transparent tracking of sequence history across pipeline stages and facilitating subsequent sequence processing.
 SystemRequirements: C++17, zlib
 License: MIT + file LICENSE
@@ -11,10 +13,10 @@ Depends:
     R (>= 4.0.0),
     Rcpp (>= 1.0.0),
 Imports: 
-    RSQLite, DBI, magrittr, jsonlite, future.apply, doFuture, Rcpp,  dplyr, future, progressr, readr,
-    stringr, tidyr, purrr, Biostrings, foreach,  furrr,  ggplot2,  iNEXT, stats, curl
+    RSQLite, DBI, magrittr, jsonlite, future.apply, doFuture, dplyr, future, progressr, readr,
+    stringr, tidyr, tidyselect, purrr, Biostrings, foreach, furrr, ggplot2, iNEXT, stats, curl, tibble
 Suggests: 
-    knitr (>= 1.41), rmarkdown (>= 2.20)
+    knitr (>= 1.41), rmarkdown (>= 2.20), stringdist
 VignetteBuilder: knitr
 Encoding: UTF-8
 LinkingTo: Rcpp
@@ -22,4 +24,3 @@ Language: en
 biocViews: Biostrings
 Roxygen: list(markdown = TRUE)
 RoxygenNote: 7.3.3
-

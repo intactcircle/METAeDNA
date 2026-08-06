@@ -110,6 +110,10 @@ void dereplicate(std::string input_fasta,
     gzFile fp_gz = nullptr;
     if (is_gz_in) fp_gz = gzopen(input_fasta.c_str(), "rb");
     else fp_plain = fopen(input_fasta.c_str(), "rb");
+    if ((is_gz_in && fp_gz == nullptr) || (!is_gz_in && fp_plain == nullptr)) {
+        CERR << "[Error] Cannot open input file: " << input_fasta << std::endl;
+        return;
+    }
 
     bool is_gz_out = false;
     {
@@ -130,6 +134,12 @@ void dereplicate(std::string input_fasta,
     }
     else {
         out_plain = fopen(output_fasta.c_str(), "w");
+    }
+    if ((is_gz_out && out_gz == nullptr) || (!is_gz_out && out_plain == nullptr)) {
+        CERR << "[Error] Cannot open output file: " << output_fasta << std::endl;
+        if (fp_plain) fclose(fp_plain);
+        if (fp_gz) gzclose(fp_gz);
+        return;
     }
     show_time("Using " + std::to_string(n_threads) + " thread(s)");
     const size_t BATCH = batch_size;

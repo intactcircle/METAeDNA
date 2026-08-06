@@ -103,20 +103,22 @@ void show_time(const std::string& s, size_t mode = 0, double secs = 0);
 int detect_system_threads();
 
 base_probability calculate_base_probabilities(const std::vector <FastqRecord>& rec_v);
+base_probability calculate_base_probabilities(
+    const std::vector<FastqRecord>& rec_v1,
+    const std::vector<FastqRecord>& rec_v2,
+    bool reverse_complement_r2 = true
+);
 void find_best_overlap(
     const FastqRecord& r1,
     const FastqRecord& r2,
     const base_probability& base_pb,
     const size_t& min_overlap,
-    const size_t max_mismatches,
     size_t& mismatch_count,
     size_t& overlap_length,
     double& overlap_score,
     FastqRecord& merged_rec,
     double& p_value,
-    double alpha, double beta,
-    bool enable_oes_test = false,
-    bool MAP = true
+    double alpha, double beta
 );
 inline bool  CPU_SUPPORTS_AVX2() {
 #if METAEDNA_X86 && (defined(__GNUC__) || defined(__clang__))
@@ -125,4 +127,3 @@ inline bool  CPU_SUPPORTS_AVX2() {
     return false;
 #endif
 }
-

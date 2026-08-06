@@ -401,7 +401,7 @@ static std::vector<Edge> build_neighbors(const std::vector<Node>& nodes, const s
                     size_t v_count = get_count(v, nodes, exp_key, sample_key);
                     double ratio = static_cast<double>(std::min(u_count, v_count)) / static_cast<double>(std::max(u_count, v_count));
 
-                    if (ratio > threshold) {
+                    if (ratio >= threshold) {
                         continue;
                     }
 
@@ -434,7 +434,7 @@ static std::vector<Edge> build_neighbors(const std::vector<Node>& nodes, const s
 
                     size_t v_count = get_count(v, nodes, exp_key, sample_key);
                     double ratio = static_cast<double>(std::min(u_count, v_count)) / static_cast<double>(std::max(u_count, v_count));
-                    if (ratio > threshold) {
+                    if (ratio >= threshold) {
                         continue;
                     }
 
@@ -610,6 +610,9 @@ void remove_internal_key(Node& nd) {
 //'   block (with updated \code{size=} and \code{"total_count"} fields).
 //' @param compress_output (logical) if \code{TRUE}, the output FASTA is written
 //'   as gzip regardless of the file name suffix.
+//' @param enable_avx2 (logical) use AVX2 instructions for sequence comparisons
+//'   when supported by the current CPU.
+//' @param debug (logical) print additional diagnostic output.
 //' @param compress_level (integer,between 0 and 9) gzip compression level passed
 //'   to \code{gzopen()} when \code{compress_output} is enabled or the output
 //'   file name ends with \code{.gz}. Higher values give better compression at
@@ -661,6 +664,10 @@ void denoise(std::string input_fasta,
     gzFile fp_gz = nullptr;
     if (is_gz_in) fp_gz = gzopen(expandTilde(input_fasta).c_str(), "rb");
     else          fp_plain = fopen(expandTilde(input_fasta).c_str(), "rb");
+    if ((is_gz_in && fp_gz == nullptr) || (!is_gz_in && fp_plain == nullptr)) {
+        CERR << "[Error] Cannot open input file: " << input_fasta << std::endl;
+        return;
+    }
 
     // Output type: .gz or compress_output => gzip.
     
@@ -684,6 +691,12 @@ void denoise(std::string input_fasta,
     }
     else {
         out_plain = fopen(output_fasta.c_str(), "w");
+    }
+    if ((is_gz_out && out_gz == nullptr) || (!is_gz_out && out_plain == nullptr)) {
+        CERR << "[Error] Cannot open output file: " << output_fasta << std::endl;
+        if (fp_plain) fclose(fp_plain);
+        if (fp_gz) gzclose(fp_gz);
+        return;
     }
 
 
@@ -798,7 +811,7 @@ void denoise(std::string input_fasta,
             //
             percent = (double)progress / double(total);
            
-                bar_current_pos = int(percent * 100) / 2;
+                bar_current_pos = std::min<size_t>(pecbar.size() - 1, int(percent * 100) / 2);
 				pecbar.std::string::replace(0,bar_current_pos, std::string(bar_current_pos, '-'));
                 pecbar[bar_current_pos] = '>';
                 
@@ -882,7 +895,7 @@ void denoise(std::string input_fasta,
             js << "}";
         }
         js << "}}}";
-		if (new_size < 10) continue; // skip low count seqs
+		if (new_size < min_count) continue; // skip low count seqs
         // Header + sequence
         std::string hdr = nd.raw_header;
         // Update count if remove internal
@@ -911,12 +924,21 @@ void denoise(std::string input_fasta,
         
         if (!hdr.empty() && hdr.back() == '\n') hdr.pop_back();
         if (keep_previous_stat) {
-            hdr.erase(hdr.rfind('}'));
+            size_t json_end = hdr.rfind('}');
+            if (json_end != std::string::npos) hdr.erase(json_end);
             writeBuf(hdr + "," + js.str() + "\n", is_gz_out, out_plain, out_gz);
             writeBuf(nd.seq + "\n", is_gz_out, out_plain, out_gz);
         }
         else {
-            hdr.erase(hdr.find_first_of("{"));
+            size_t stat_start = hdr.find("\"stat\":");
+            if (stat_start != std::string::npos) {
+                size_t sep = hdr.rfind(';', stat_start);
+                hdr.erase(sep == std::string::npos ? stat_start : sep + 1);
+            }
+            else {
+                size_t json_start = hdr.find_first_of("{");
+                if (json_start != std::string::npos) hdr.erase(json_start);
+            }
             writeBuf(hdr + "{" + js.str() + "\n", is_gz_out, out_plain, out_gz);
             writeBuf(nd.seq + "\n", is_gz_out, out_plain, out_gz);
         }

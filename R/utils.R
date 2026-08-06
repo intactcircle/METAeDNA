@@ -38,6 +38,7 @@
 #' @return
 #' Invisibly returns \code{NULL}. The primary effect is console printing.
 #'
+#' @noRd
 #' @importFrom utils flush.console
 #'
 #' @examples
@@ -166,7 +167,11 @@ detect_cmd <- function(cmd, path = NULL) {
       }
       if (file.exists(full)) return(full)
     }
-    stop(paste0("Cannot find [", cmd,"] command.\nPlease ensure that program are installed and correctly configured within the system, or manually specify the location of the executable file." ), call. = FALSE)
+    stop(
+      "Cannot find the '", cmd, "' executable. Install it, add it to PATH, ",
+      "or provide its location explicitly.",
+      call. = FALSE
+    )
 
   }else{
     if(str_detect(sys, "Windows|windows") ){
@@ -174,7 +179,10 @@ detect_cmd <- function(cmd, path = NULL) {
     }else{
       full <- file.path(path, cmd)
     }
-    if(file.exists(full)){return(full)}else{ stop(paste0("Cannot find [", cmd,"] command.\nPlease ensure specify a correct location of the executable file." ), call. = FALSE)
+    if(file.exists(full)){return(full)}else{ stop(
+      "Cannot find the '", cmd, "' executable at the specified location.",
+      call. = FALSE
+    )
 }
   }
 }

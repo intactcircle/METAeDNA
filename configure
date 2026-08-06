@@ -10,8 +10,6 @@
 CXX=`"${R_HOME}/bin/R" CMD config CXX`
 CXXFLAGS=`"${R_HOME}/bin/R" CMD config CXXFLAGS`
 CXXLD=`"${R_HOME}/bin/R" CMD config CXXLD`
-echo "CXX=${CXX}"         > inst/cxx
-echo "CXXFLAGS=${CXXFLAGS}" >> inst/cxx
 
 case "$CXX" in
   g++*)
@@ -35,8 +33,8 @@ else
   if [ $? -ne 0 ]; then
     msg=1
   else
-    zlib_libs=`pkg-config --libs zlib`
-    zlib_cflags=`pkg-config --cflags zlib`
+    zlib_libs=`pkg-config --libs zlib | sed 's/[[:space:]]*$//'`
+    zlib_cflags=`pkg-config --cflags zlib | sed 's/[[:space:]]*$//'`
     echo "$zlib_libs" | grep -qE '[-]lz($| )' || msg=1
     if [ "$msg" -eq 0 ]; then
       NOZLIB=0
@@ -88,8 +86,9 @@ detect_openmp () {
       echo "yes"
       export R_OPENMP_ENABLED=1
       export PKG_CXXFLAGS="${PKG_CXXFLAGS} -fopenmp"
+      export PKG_LIBS="${PKG_LIBS} -fopenmp"
       export OPENMP_MODE="R"
-       return
+      return
     else
       echo "no"
     fi
@@ -98,6 +97,7 @@ detect_openmp () {
     if ${CXX} ${CXXFLAGS} -fopenmp test-omp.cpp >> config.log 2>&1; then
       echo "yes"
       export PKG_CXXFLAGS="${PKG_CXXFLAGS} -fopenmp"
+      export PKG_LIBS="${PKG_LIBS} -fopenmp"
       export R_OPENMP_ENABLED=1
       export OPENMP_MODE="fopenmp"
       return
@@ -127,8 +127,9 @@ detect_openmp () {
     if CXXFLAGS="${CXXFLAGS} -fopenmp" "${R_HOME}/bin/R" CMD SHLIB test-omp.cpp >> config.log 2>&1; then
       echo "yes"
       export PKG_CXXFLAGS="${PKG_CXXFLAGS} -fopenmp"
+      export PKG_LIBS="${PKG_LIBS} -fopenmp"
       export R_OPENMP_ENABLED=1
-       export OPENMP_MODE="fopenmp"
+      export OPENMP_MODE="fopenmp"
       return
     else
       echo "no"
@@ -186,10 +187,10 @@ if [ "$R_OPENMP_ENABLED" = "1" ]; then
   fi
 fi
 
-rm -f test-omp.exe test-omp.o test-omp.so test-omp.c
+rm -f test-omp.exe test-omp.o test-omp.so test-omp.cpp
 
 ## ---------------------------------------------------------
-## Report OpenMP status (FORMAT FIXED AS REQUESTED)
+## Report OpenMP status
 ## ---------------------------------------------------------
 if [ "$R_OPENMP_ENABLED" = "1" ]; then
   echo "* OpenMP enabled"
@@ -197,9 +198,6 @@ if [ "$R_OPENMP_ENABLED" = "1" ]; then
   echo "* available processors: ${OMP_PROCS}"
   echo "* runtime max threads : ${OMP_MAX}"
   echo "* note                : actual threads are controlled by OMP_NUM_THREADS or function arguments"
-  # echo ${PKG_CXXFLAGS}
-
-  # echo $(uname)
 else
   echo "*** OpenMP not available"
   echo "*** compiling in single-thread mode"
@@ -208,23 +206,11 @@ fi
 ## ---------------------------------------------------------
 ## Make an src/Makevars
 ## ---------------------------------------------------------
-# echo "zlib_libs: "  ${zlib_libs}
-# echo "PKG_CXXFLAGS: " ${PKG_CXXFLAGS}
-# echo "PKG_LIBS: " ${PKG_LIBS}
-
-if [ "$R_OPENMP_ENABLED" = "1" ]; then
-  sed \
-    -e "s|@openmp_flags@|\$(SHLIB_OPENMP_CXXFLAGS)|" \
-    -e "s|@openmp_libs@|\$(SHLIB_OPENMP_CXXFLAGS)|" \
-    -e "s|@zlib_libs@|${zlib_libs}|" \
-    src/Makevars.in > src/Makevars
-else
-  sed \
-    -e "s|@openmp_flags@||" \
-    -e "s|@zlib_libs@|${zlib_libs}|" \
-    src/Makevars.in > src/Makevars
-fi
+sed \
+  -e "s|@zlib_cflags@|${zlib_cflags}|" \
+  -e "s|@zlib_libs@|${zlib_libs}|" \
+  src/Makevars.in > src/Makevars
 sed -e "s|@PKG_CXXFLAGS@|$PKG_CXXFLAGS|" src/Makevars > src/Makevars.tmp && mv src/Makevars.tmp src/Makevars
 sed -e "s|@PKG_LIBS@|$PKG_LIBS|" src/Makevars > src/Makevars.tmp && mv src/Makevars.tmp src/Makevars
-#cat src/Makevars
+sed -e 's/[[:space:]]*$//' src/Makevars > src/Makevars.tmp && mv src/Makevars.tmp src/Makevars
 exit 0

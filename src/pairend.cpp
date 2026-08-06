@@ -52,18 +52,18 @@ using namespace Rcpp;
 //'   two reads. Overlaps shorter than this threshold are not used.
 //'
 //' @param max_mismatches (integer) maximum number of mismatched bases allowed
-//'   within the overlapping region between the two reads.
+//'   within the overlapping region between the two reads. This is an additional
+//'   METAeDNA filter applied after the PEAR OES p-value test.
 //'
 //' @param compress_output (logical) if \code{TRUE}, write the output FASTQ file
 //'   in gzip format regardless of the suffix of \code{out_file}.
 //'
 //'
-//' @param lambda (double) penalty weight applied to mismatches during overlap
-//'   scoring. This parameter controls the mismatch contribution to the overlap
-//'   score returned by the algorithm.
+//' @param alpha (double) weight assigned to evidence supporting a base match in
+//'   overlap scoring.
 //'
-//' @param score_threshold (double) minimum overlap score required for accepting
-//'   a merged read. Merged reads with scores below this threshold are discarded.
+//' @param beta (double) weight assigned to evidence against a base match in
+//'   overlap scoring.
 //'
 //' @param n_threads (integer) number of parallel threads used for merging.
 //'   When OpenMP is available, multi-threading accelerates overlap detection
@@ -81,7 +81,7 @@ using namespace Rcpp;
 // [[Rcpp::export]]
 void pairend(std::string fastq_1, std::string fastq_2, std::string out_file,
     size_t compress_level = 6, size_t min_overlap = 10, size_t max_mismatches = 5,
-    bool compress_output = false, bool enable_oes_test = true,
+    bool compress_output = false,
     double alpha = 1.0, double beta = -1.0,
     int n_threads = 4, int batch_size = 1000000)
 {
@@ -105,16 +105,55 @@ void pairend(std::string fastq_1, std::string fastq_2, std::string out_file,
 	// Basic statistical data ------------------START
     if (is_gz1) gz1 = gzopen(expandTilde(fastq_1).c_str(), "rb");
     else        fp1 = fopen(expandTilde(fastq_1).c_str(), "rb");
+    if (is_gz2) gz2 = gzopen(expandTilde(fastq_2).c_str(), "rb");
+    else        fp2 = fopen(expandTilde(fastq_2).c_str(), "rb");
+    if ((is_gz1 && gz1 == nullptr) || (!is_gz1 && fp1 == nullptr)) {
+        CERR << "[Error] Cannot open input file: " << fastq_1 << std::endl;
+        return;
+    }
+    if ((is_gz2 && gz2 == nullptr) || (!is_gz2 && fp2 == nullptr)) {
+        CERR << "[Error] Cannot open input file: " << fastq_2 << std::endl;
+        if (is_gz1) gzclose(gz1);
+        else        fclose(fp1);
+        return;
+    }
     int i = 0;
     base_probability base_pb;
-    std::vector<FastqRecord> rec_v;
+    std::vector<FastqRecord> rec_v1;
+    std::vector<FastqRecord> rec_v2;
+    rec_v1.reserve(static_cast<size_t>(batch_size));
+    rec_v2.reserve(static_cast<size_t>(batch_size));
     while (i < batch_size) {
-        FastqRecord tempr;
-        readRec(is_gz1, fp1, gz1, tempr, true);
-        rec_v.push_back(tempr);
+        FastqRecord tempr1, tempr2;
+        bool ok1 = readRec(is_gz1, fp1, gz1, tempr1, true);
+        bool ok2 = readRec(is_gz2, fp2, gz2, tempr2, true);
+        if (!ok1 || !ok2) {
+            if (ok1 != ok2) {
+                CERR << "[Warning] Paired FASTQ files contain different record counts while estimating base probabilities." << std::endl;
+            }
+            break;
+        }
+        std::transform(tempr1.seq.begin(), tempr1.seq.end(), tempr1.seq.begin(),
+            [](unsigned char c) { return std::toupper(c); });
+        std::transform(tempr2.seq.begin(), tempr2.seq.end(), tempr2.seq.begin(),
+            [](unsigned char c) { return std::toupper(c); });
+        rec_v1.push_back(std::move(tempr1));
+        rec_v2.push_back(std::move(tempr2));
         i++;
     }
-    base_pb = calculate_base_probabilities(rec_v);
+    if (rec_v1.empty() || rec_v2.empty()) {
+        CERR << "[Error] No paired FASTQ records found in input files." << std::endl;
+        if (is_gz1) gzclose(gz1);
+        else        fclose(fp1);
+        if (is_gz2) gzclose(gz2);
+        else        fclose(fp2);
+        return;
+    }
+    base_pb = calculate_base_probabilities(rec_v1, rec_v2, true);
+    rec_v1.clear();
+    rec_v2.clear();
+    rec_v1.shrink_to_fit();
+    rec_v2.shrink_to_fit();
     // Basic statistical data ------------------END
 	//Close connection and reopen to reset file pointer
     if (is_gz1) gzclose(gz1);
@@ -125,6 +164,16 @@ void pairend(std::string fastq_1, std::string fastq_2, std::string out_file,
     else        fp1 = fopen(expandTilde(fastq_1).c_str(), "rb");
     if (is_gz2) gz2 = gzopen(expandTilde(fastq_2).c_str(), "rb");
     else        fp2 = fopen(expandTilde(fastq_2).c_str(), "rb");
+    if ((is_gz1 && gz1 == nullptr) || (!is_gz1 && fp1 == nullptr)) {
+        CERR << "[Error] Cannot reopen input file: " << fastq_1 << std::endl;
+        return;
+    }
+    if ((is_gz2 && gz2 == nullptr) || (!is_gz2 && fp2 == nullptr)) {
+        CERR << "[Error] Cannot open input file: " << fastq_2 << std::endl;
+        if (is_gz1) gzclose(gz1);
+        else        fclose(fp1);
+        return;
+    }
 
     std::string lower_out = expandTilde(out_file);
     out_file = expandTilde(out_file);
@@ -135,14 +184,22 @@ void pairend(std::string fastq_1, std::string fastq_2, std::string out_file,
     if (compress_output) {
         std::string mode = "wb" + std::to_string(compress_level);
         gzOut = gzopen(out_file.c_str(), mode.c_str());
+        if (gzOut == nullptr) {
+            CERR << "[Error] Cannot open output file: " << out_file << std::endl;
+            if (is_gz1) gzclose(gz1); else fclose(fp1);
+            if (is_gz2) gzclose(gz2); else fclose(fp2);
+            return;
+        }
     }
     else {
         outFp = fopen(out_file.c_str(), "w");
+        if (outFp == nullptr) {
+            CERR << "[Error] Cannot open output file: " << out_file << std::endl;
+            if (is_gz1) gzclose(gz1); else fclose(fp1);
+            if (is_gz2) gzclose(gz2); else fclose(fp2);
+            return;
+        }
     }
-
-    const unsigned buffer_size = 512 * 1024;
-    char* buffer1 = new char[buffer_size];
-    char* buffer2 = new char[buffer_size];
 
     // prepare batch containers
     const size_t BATCH = batch_size;
@@ -173,6 +230,12 @@ void pairend(std::string fastq_1, std::string fastq_2, std::string out_file,
             FastqRecord rec1, rec2;
             bool ok1 = readRec(is_gz1, fp1, gz1, rec1, true);
             bool ok2 = readRec(is_gz2, fp2, gz2, rec2, true);
+            if (!ok1 || !ok2) {
+                if (ok1 != ok2) {
+                    CERR << "[Warning] Paired FASTQ files contain different record counts; trailing unpaired reads were ignored." << std::endl;
+                }
+                break;
+            }
             //----------------------------------------------------
             // seqs to upper -------------------------------------
             //----------------------------------------------------
@@ -191,8 +254,7 @@ void pairend(std::string fastq_1, std::string fastq_2, std::string out_file,
                 ? readRecordGZ(gz2, rec2, buffer2, buffer_size, true)
                 : readRecordPlain(fp2, rec2, buffer2, buffer_size, true);
             */
-            if (!ok1 || !ok2) break;
-            batch.push_back({ rec1, rec2 });
+            batch.push_back({ std::move(rec1), std::move(rec2) });
         }
         if (batch.empty()) break;
 
@@ -231,32 +293,20 @@ void pairend(std::string fastq_1, std::string fastq_2, std::string out_file,
 				double score = 0.0;
                 double p_value = 0;
 				FastqRecord merged_rec;
-				find_best_overlap(rec1, rec2, base_pb, min_overlap,max_mismatches, mismatch_count, ovl, score, merged_rec, p_value, alpha, beta, enable_oes_test);
+				find_best_overlap(rec1, rec2, base_pb, min_overlap, mismatch_count, ovl, score, merged_rec, p_value, alpha, beta);
 
-				std::ostringstream id_js;
-				std::string clean_id = merged_rec.id;        // copy
-				std::replace(clean_id.begin(), clean_id.end(), ' ', '_');   // replace spaces with underscores
-				id_js << clean_id
-					<< ";{\"pairend\":"
-					<< "{\"mismatch\":" << mismatch_count
-					<< ",\"overlap\":" << ovl
-					<< ",\"ovl_score\":" << score
-					<< "}}";
-				std::string mergedID = id_js.str();
-				std::ostringstream ss;
-				ss << mergedID << '\n'
-					<< merged_rec.seq << '\n'
-					<< merged_rec.plus << '\n'
-					<< merged_rec.qual << '\n';
-				if (enable_oes_test ) {
-					if (p_value <0.01&&mismatch_count <= max_mismatches && min_overlap <= ovl) {
-                        local_buf.push_back(ss.str());
-                    }
-                }
-                else {
-					if (mismatch_count <= max_mismatches && min_overlap <= ovl) {
-                        local_buf.push_back(ss.str());
-                    }
+				if (p_value < 0.01 && mismatch_count <= max_mismatches && min_overlap <= ovl) {
+                    std::replace(merged_rec.id.begin(), merged_rec.id.end(), ' ', '_');
+                    std::ostringstream ss;
+                    ss << merged_rec.id
+                        << ";{\"pairend\":{\"mismatch\":" << mismatch_count
+                        << ",\"overlap\":" << ovl
+                        << ",\"ovl_score\":" << score
+                        << "}}\n"
+                        << merged_rec.seq << '\n'
+                        << merged_rec.plus << '\n'
+                        << merged_rec.qual << '\n';
+                    local_buf.push_back(ss.str());
                 }
 			}
             
@@ -281,8 +331,6 @@ void pairend(std::string fastq_1, std::string fastq_2, std::string out_file,
     if (!is_gz1) fclose(fp1); else gzclose(gz1);
     if (!is_gz2) fclose(fp2); else gzclose(gz2);
     if (compress_output) gzclose(gzOut); else fclose(outFp);
-    delete[] buffer1; delete[] buffer2;
-
     now = std::chrono::system_clock::now();
     std::chrono::duration<double> elapsed_seconds = now - start_time;
     std::ostringstream temp_string;

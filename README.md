@@ -76,7 +76,7 @@ denoise(
 seq_table <- fasta_to_table("denoised.fasta", threads = 4)
 
 # 4. Cluster similar sequences if needed
-clustered <- vsearch_cluster_table(
+clustered <- vsearch_cluster(
   seq_table = seq_table,
   output_path = "cluster_result",
   identity = 0.97,
@@ -93,7 +93,7 @@ METAeDNA can work with local NCBI taxonomy resources and BLAST databases.
 ### Build Local NCBI Taxonomy Database
 
 ```r
-make_database(
+build_ncbi_taxonomy_database(
   taxonomy = TRUE,
   accession = TRUE,
   include_WGS = FALSE,
@@ -230,7 +230,8 @@ amplicons <- in_silico(
 )
 ```
 
-For multiple primer pairs, use `in_silico_multiprimer()`.
+For multiple primer pairs, pass equal-length vectors to `forward` and `reverse`
+and set `workers` in `in_silico()`.
 
 ## BLAST and VSEARCH Wrappers
 
@@ -294,10 +295,10 @@ rare$fig
 | Paired-end and sequence preprocessing | `pairend()`, `demultiplex()`, `dereplicate()`, `denoise()`, `merge_replicate()`, `count_records()` |
 | FASTA and table conversion | `fasta_to_table()`, `format_to_dada()` |
 | BLAST wrappers and databases | `blast_cmd()`, `blastn_cmd()`, `download_blast_db()`, `prepare_blast_database()` |
-| VSEARCH wrappers | `vsearch_cmd()`, `vsearch_cluster()`, `vsearch_cluster_table()`, `vsearch_remove_chimeras()` |
-| NCBI taxonomy | `make_database()`, `get_taxid()`, `get_taxonomy()`, `find_lca()` |
+| VSEARCH wrappers | `vsearch_cmd()`, `vsearch_cluster()`, `vsearch_remove_chimeras()` |
+| Taxonomy databases | `build_ncbi_taxonomy_database()`, `build_col_taxonomy_database()`, `get_taxid()`, `get_taxonomy()`, `find_lca()` |
 | Reference building | `build_gb_reference()`, `build_gb_reference_online()`, `build_gb_reference_local()` |
-| In-silico PCR | `find_primer_binding_sites()`, `in_silico_base()`, `in_silico()`, `in_silico_multiprimer()` |
+| In-silico PCR | `find_primer_binding_sites()`, `in_silico()` |
 | Decontamination and diversity | `decontamination()`, `rarefaction_extrapolation()` |
 
 ## Notes
