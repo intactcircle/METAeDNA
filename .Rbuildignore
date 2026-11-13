@@ -1,0 +1,27 @@
+(^|/)[.]
+
+# Package builds and compiled files
+^.*[.]Rcheck$
+^.*_[0-9].*[.]tar[.]gz$
+^.*[.]Rproj$
+^config[.]log$
+^Rplots[.]pdf$
+^src/Makevars$
+^src/main([.]cpp)?$
+^src/pairend$
+^src/.*[.](o|so|dll|dylib|a|exe|out|gcda|gcno|gcov)$
+
+# Local data, analysis scripts, and experimental models
+^(data|dada|ideal_test|simulation|osrc|doc|Meta|build)$
+^(compare|simulation|simulations)[.]R$
+^(temp[.]fasta|test-omp[.]cpp|obitools4_pairing_benchmark[.]sh)$
+^LICENSE[.]txt$
+^(venv|env|__pycache__)$
+^.*[.](pt|pth|ckpt|pyc|pyo)$
+^R/(deep_learning_taxonomy|env_set_transformer)[.]R$
+^inst/(python|cxx)$
+^man/dl_taxonomy_.*[.]Rd$
+^man/env_set_transformer_.*[.]Rd$
+
+# Keep repository Markdown pages out of the R source package.
+^[^/]+[.]md$
