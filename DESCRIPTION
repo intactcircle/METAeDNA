@@ -2,25 +2,24 @@ Package: METAeDNA
 Title: Integrates the eDNA Metabarcoding Analysis Workflow
 Version: 1.0.0
 Authors@R: 
-    person("Yuan", "Luo", , "yuan_l@pku.edu.cn", role = c("aut", "cre"),
-           comment = c(ORCID = "0000-0001-6936-5970"))
-Author: Yuan Luo [aut, cre] (<https://orcid.org/0000-0001-6936-5970>)
-Maintainer: Yuan Luo <yuan_l@pku.edu.cn>
-Description: METAeDNA is an R package for environmental DNA (eDNA) metabarcoding analysis. It provides an integrated workflow for sequence preprocessing and downstream analyses. Core sequence-processing steps are implemented in C++ with optional OpenMP parallelization for improved efficiency. Intermediate results are stored as structured JSON metadata embedded in FASTA headers, enabling transparent tracking of sequence history across pipeline stages and facilitating subsequent sequence processing.
+    person("Anonymous", "Authors", email = "anonymous@example.org", role = c("aut", "cre"))
+Author: Anonymous Authors [aut, cre]
+Maintainer: Anonymous Authors <anonymous@example.org>
+Description: Processes environmental DNA (eDNA) metabarcoding reads and calculates taxon abundances and diversity. Functions merge paired reads, assign PCR reactions, collapse identical sequences, denoise reads, correct blank counts, build reference databases, and assign taxonomy. Sequence-processing functions use C++ with optional OpenMP parallelization. FASTA headers retain processing statistics and reaction counts as JSON metadata.
 SystemRequirements: C++17, zlib
 License: MIT + file LICENSE
 Depends:
     R (>= 4.0.0),
     Rcpp (>= 1.0.0),
 Imports: 
-    RSQLite, DBI, magrittr, jsonlite, future.apply, doFuture, dplyr, future, progressr, readr,
-    stringr, tidyr, tidyselect, purrr, Biostrings, foreach, furrr, ggplot2, iNEXT, stats, curl, tibble
+    RSQLite, DBI, magrittr, jsonlite, future.apply, dplyr, future, readr,
+    stringr, tidyr, Biostrings, stats, curl, tibble, ggplot2, xml2
 Suggests: 
-    knitr (>= 1.41), rmarkdown (>= 2.20), stringdist
+    knitr (>= 1.41), rmarkdown (>= 2.20), stringdist, dada2, shiny, callr, pkgload
 VignetteBuilder: knitr
 Encoding: UTF-8
 LinkingTo: Rcpp
 Language: en
 biocViews: Biostrings
 Roxygen: list(markdown = TRUE)
-RoxygenNote: 7.3.3
+Config/roxygen2/version: 8.1.0

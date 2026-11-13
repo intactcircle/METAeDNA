@@ -9,10 +9,9 @@ pairend(
   fastq_2,
   out_file,
   compress_level = 6L,
-  min_overlap = 10L,
-  max_mismatches = 5L,
+  min_overlap = 15L,
+  max_mismatches = 3L,
   compress_output = FALSE,
-  enable_oes_test = TRUE,
   alpha = 1,
   beta = -1,
   n_threads = 4L,
@@ -37,10 +36,17 @@ with \code{.gz}, the output is gzip-compressed.}
 two reads. Overlaps shorter than this threshold are not used.}
 
 \item{max_mismatches}{(integer) maximum number of mismatched bases allowed
-within the overlapping region between the two reads.}
+within the overlapping region between the two reads. This is an additional
+METAeDNA filter applied after the PEAR OES p-value test.}
 
 \item{compress_output}{(logical) if \code{TRUE}, write the output FASTQ file
 in gzip format regardless of the suffix of \code{out_file}.}
+
+\item{alpha}{(double) weight assigned to evidence supporting a base match in
+overlap scoring.}
+
+\item{beta}{(double) weight assigned to evidence against a base match in
+overlap scoring.}
 
 \item{n_threads}{(integer) number of parallel threads used for merging.
 When OpenMP is available, multi-threading accelerates overlap detection
@@ -48,13 +54,6 @@ and merging within each processed batch.}
 
 \item{batch_size}{(integer) number of read pairs processed per batch.
 Larger batch sizes reduce I/O overhead but increase memory usage.}
-
-\item{lambda}{(double) penalty weight applied to mismatches during overlap
-scoring. This parameter controls the mismatch contribution to the overlap
-score returned by the algorithm.}
-
-\item{score_threshold}{(double) minimum overlap score required for accepting
-a merged read. Merged reads with scores below this threshold are discarded.}
 }
 \value{
 Invisibly returns \code{NULL}. The merged reads are written to
@@ -63,7 +62,7 @@ quality string, and a JSON block appended to the identifier summarizing
 overlap size, mismatch count, and overlap score.
 }
 \description{
-This function merges paired-end reads from two FASTQ files by identifying
+\code{pairend()} merges paired-end reads from two FASTQ files by identifying
 overlapping regions between read 1 and the reverse-complement of read 2.
 Overlap length, mismatch allowance, and overlap scoring can be customized.
 }

@@ -2,15 +2,18 @@
 % Please edit documentation in R/API_call.R
 \name{vsearch_cluster}
 \alias{vsearch_cluster}
-\title{Cluster sequences using VSEARCH clustering algorithms}
+\title{Cluster a FASTA file or sequence table using VSEARCH}
 \usage{
 vsearch_cluster(
   vsearch_exe_path = NULL,
-  input_fasta = NULL,
+  sequence_table = NULL,
+  fasta_file = NULL,
   output_path = NULL,
   identity = 0.97,
   mode = c("cluster_fast", "cluster_size", "cluster_smallmem", "cluster_unoise"),
-  threads = NULL
+  n_threads = NULL,
+  minsize = 8L,
+  unoise_alpha = 2
 )
 }
 \arguments{
@@ -18,8 +21,12 @@ vsearch_cluster(
 executable. If \code{NULL}, the function searches for \code{"vsearch"}
 via \code{detect_cmd()}.}
 
-\item{input_fasta}{(character) path to the FASTA file containing the input
-sequences to be clustered.}
+\item{sequence_table}{(data.frame or tibble) optional sequence-abundance table
+containing \code{SEQ_ID}, \code{SEQ}, and \code{total_count}. Supply either
+\code{sequence_table} or \code{fasta_file}.}
+
+\item{fasta_file}{(character) path to the FASTA file containing the input
+sequences. Supply either \code{fasta_file} or \code{sequence_table}.}
 
 \item{output_path}{(character) directory where clustering output files will
 be written. The function creates:
@@ -42,32 +49,41 @@ clustering level (e.g., OTU97 uses \code{0.97}).}
 The selected mode is automatically converted into the corresponding flag
 (e.g., \code{--cluster_fast}).}
 
-\item{threads}{(integer or NULL) number of CPU threads to use, passed to
+\item{n_threads}{(integer or NULL) number of CPU threads to use, passed to
 VSEARCH via \code{--threads}. If \code{NULL}, threading is not explicitly
 specified.}
+
+\item{minsize}{Minimum abundance retained by \code{cluster_unoise}. VSEARCH
+uses 8 by default.}
+
+\item{unoise_alpha}{Abundance-skew parameter used only by
+\code{cluster_unoise}. VSEARCH uses 2.0 by default.}
 }
 \value{
-Returns the exit status of the VSEARCH command executed by
-\code{vsearch_cmd()}. The function also prints the resolved executable path
-and the full command string.
+When \code{fasta_file} is supplied, returns the exit status from
+\code{vsearch_cmd()}. When \code{sequence_table} is supplied, returns a collapsed
+tibble containing one row per experiment and centroid, with numeric
+abundance columns summed across cluster members.
 }
 \description{
-This function is a wrapper for several VSEARCH clustering algorithms,
-including \code{cluster_fast}, \code{cluster_size}, \code{cluster_smallmem},
-and \code{cluster_unoise}. It constructs a VSEARCH command, executes it via
-\code{vsearch_cmd()}, and writes cluster centroids and a \code{.uc} cluster
-mapping file to the specified output directory.
+The function accepts either a FASTA file through \code{fasta_file} or a
+METAeDNA sequence-abundance table through \code{sequence_table}. Both input modes
+write cluster centroids and a \code{.uc} mapping file. When \code{sequence_table}
+is supplied, cluster membership is additionally merged back into the table
+and numeric abundance columns are summed for each experiment and centroid.
+}
+\details{
+Mode \code{"cluster_unoise"} runs VSEARCH's UNOISE3 implementation. Input
+labels must contain \code{size=} abundance annotations; these are generated
+automatically for \code{sequence_table} input. UNOISE denoising does not perform
+de novo chimera removal. Run \code{vsearch_remove_chimeras()} afterwards if
+that step is required. The \code{identity} argument applies to the three
+conventional clustering modes and is not passed to \code{cluster_unoise}.
 }
 \examples{
 \dontrun{
-vsearch_cluster(
-  vsearch_exe_path = "/usr/local/bin/",
-  input_fasta      = "seqs.fasta",
-  output_path      = "results/",
-  identity         = 0.97,
-  mode             = "cluster_fast",
-  threads          = 8
-)
-}
-
+# Cluster the FASTA produced by chimera removal.
+vsearch_cluster(fasta_file = "nonchimera.fasta",
+                output_path = "clusters", identity = 0.97, n_threads = 4)
+}#'
 }

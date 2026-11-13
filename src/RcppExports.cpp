@@ -34,12 +34,12 @@ BEGIN_RCPP
 END_RCPP
 }
 // demultiplex
-void demultiplex(std::string fastq_file, std::string primer_table, std::string identified_output, std::string unidentified_output, int n_threads, bool with_tag, bool compress_output, int compress_level, int primer_mismatch);
-RcppExport SEXP _METAeDNA_demultiplex(SEXP fastq_fileSEXP, SEXP primer_tableSEXP, SEXP identified_outputSEXP, SEXP unidentified_outputSEXP, SEXP n_threadsSEXP, SEXP with_tagSEXP, SEXP compress_outputSEXP, SEXP compress_levelSEXP, SEXP primer_mismatchSEXP) {
+void demultiplex(std::string fastq_file, std::string reaction_table, std::string identified_output, std::string unidentified_output, int n_threads, bool with_tag, bool compress_output, int compress_level, int primer_mismatch);
+RcppExport SEXP _METAeDNA_demultiplex(SEXP fastq_fileSEXP, SEXP reaction_tableSEXP, SEXP identified_outputSEXP, SEXP unidentified_outputSEXP, SEXP n_threadsSEXP, SEXP with_tagSEXP, SEXP compress_outputSEXP, SEXP compress_levelSEXP, SEXP primer_mismatchSEXP) {
 BEGIN_RCPP
     Rcpp::RNGScope rcpp_rngScope_gen;
     Rcpp::traits::input_parameter< std::string >::type fastq_file(fastq_fileSEXP);
-    Rcpp::traits::input_parameter< std::string >::type primer_table(primer_tableSEXP);
+    Rcpp::traits::input_parameter< std::string >::type reaction_table(reaction_tableSEXP);
     Rcpp::traits::input_parameter< std::string >::type identified_output(identified_outputSEXP);
     Rcpp::traits::input_parameter< std::string >::type unidentified_output(unidentified_outputSEXP);
     Rcpp::traits::input_parameter< int >::type n_threads(n_threadsSEXP);
@@ -47,16 +47,34 @@ BEGIN_RCPP
     Rcpp::traits::input_parameter< bool >::type compress_output(compress_outputSEXP);
     Rcpp::traits::input_parameter< int >::type compress_level(compress_levelSEXP);
     Rcpp::traits::input_parameter< int >::type primer_mismatch(primer_mismatchSEXP);
-    demultiplex(fastq_file, primer_table, identified_output, unidentified_output, n_threads, with_tag, compress_output, compress_level, primer_mismatch);
+    demultiplex(fastq_file, reaction_table, identified_output, unidentified_output, n_threads, with_tag, compress_output, compress_level, primer_mismatch);
+    return R_NilValue;
+END_RCPP
+}
+// barcode_split
+void barcode_split(std::string fastq_1, std::string fastq_2, std::string reaction_table, std::string output_dir, int n_threads, int batch_size, bool compress_output, int compress_level, bool with_primer);
+RcppExport SEXP _METAeDNA_barcode_split(SEXP fastq_1SEXP, SEXP fastq_2SEXP, SEXP reaction_tableSEXP, SEXP output_dirSEXP, SEXP n_threadsSEXP, SEXP batch_sizeSEXP, SEXP compress_outputSEXP, SEXP compress_levelSEXP, SEXP with_primerSEXP) {
+BEGIN_RCPP
+    Rcpp::RNGScope rcpp_rngScope_gen;
+    Rcpp::traits::input_parameter< std::string >::type fastq_1(fastq_1SEXP);
+    Rcpp::traits::input_parameter< std::string >::type fastq_2(fastq_2SEXP);
+    Rcpp::traits::input_parameter< std::string >::type reaction_table(reaction_tableSEXP);
+    Rcpp::traits::input_parameter< std::string >::type output_dir(output_dirSEXP);
+    Rcpp::traits::input_parameter< int >::type n_threads(n_threadsSEXP);
+    Rcpp::traits::input_parameter< int >::type batch_size(batch_sizeSEXP);
+    Rcpp::traits::input_parameter< bool >::type compress_output(compress_outputSEXP);
+    Rcpp::traits::input_parameter< int >::type compress_level(compress_levelSEXP);
+    Rcpp::traits::input_parameter< bool >::type with_primer(with_primerSEXP);
+    barcode_split(fastq_1, fastq_2, reaction_table, output_dir, n_threads, batch_size, compress_output, compress_level, with_primer);
     return R_NilValue;
 END_RCPP
 }
 // denoise
-void denoise(std::string input_fasta, std::string output_fasta, size_t sequence_min_L, size_t sequence_max_L, size_t min_count, double threshold, int n_threads, size_t max_diff, size_t max_indel, bool keep_internal, bool keep_previous_stat, bool compress_output, bool enable_avx2, bool debug, int compress_level);
-RcppExport SEXP _METAeDNA_denoise(SEXP input_fastaSEXP, SEXP output_fastaSEXP, SEXP sequence_min_LSEXP, SEXP sequence_max_LSEXP, SEXP min_countSEXP, SEXP thresholdSEXP, SEXP n_threadsSEXP, SEXP max_diffSEXP, SEXP max_indelSEXP, SEXP keep_internalSEXP, SEXP keep_previous_statSEXP, SEXP compress_outputSEXP, SEXP enable_avx2SEXP, SEXP debugSEXP, SEXP compress_levelSEXP) {
+void denoise(std::string fasta_file, std::string output_fasta, size_t sequence_min_L, size_t sequence_max_L, size_t min_count, double threshold, int n_threads, size_t max_diff, size_t max_indel, bool keep_internal, bool keep_previous_stat, bool compress_output, bool enable_avx2, bool debug, int compress_level);
+RcppExport SEXP _METAeDNA_denoise(SEXP fasta_fileSEXP, SEXP output_fastaSEXP, SEXP sequence_min_LSEXP, SEXP sequence_max_LSEXP, SEXP min_countSEXP, SEXP thresholdSEXP, SEXP n_threadsSEXP, SEXP max_diffSEXP, SEXP max_indelSEXP, SEXP keep_internalSEXP, SEXP keep_previous_statSEXP, SEXP compress_outputSEXP, SEXP enable_avx2SEXP, SEXP debugSEXP, SEXP compress_levelSEXP) {
 BEGIN_RCPP
     Rcpp::RNGScope rcpp_rngScope_gen;
-    Rcpp::traits::input_parameter< std::string >::type input_fasta(input_fastaSEXP);
+    Rcpp::traits::input_parameter< std::string >::type fasta_file(fasta_fileSEXP);
     Rcpp::traits::input_parameter< std::string >::type output_fasta(output_fastaSEXP);
     Rcpp::traits::input_parameter< size_t >::type sequence_min_L(sequence_min_LSEXP);
     Rcpp::traits::input_parameter< size_t >::type sequence_max_L(sequence_max_LSEXP);
@@ -71,8 +89,37 @@ BEGIN_RCPP
     Rcpp::traits::input_parameter< bool >::type enable_avx2(enable_avx2SEXP);
     Rcpp::traits::input_parameter< bool >::type debug(debugSEXP);
     Rcpp::traits::input_parameter< int >::type compress_level(compress_levelSEXP);
-    denoise(input_fasta, output_fasta, sequence_min_L, sequence_max_L, min_count, threshold, n_threads, max_diff, max_indel, keep_internal, keep_previous_stat, compress_output, enable_avx2, debug, compress_level);
+    denoise(fasta_file, output_fasta, sequence_min_L, sequence_max_L, min_count, threshold, n_threads, max_diff, max_indel, keep_internal, keep_previous_stat, compress_output, enable_avx2, debug, compress_level);
     return R_NilValue;
+END_RCPP
+}
+// validate_paired_fastq
+double validate_paired_fastq(std::string forward, std::string reverse, int n_threads, int batch_size);
+RcppExport SEXP _METAeDNA_validate_paired_fastq(SEXP forwardSEXP, SEXP reverseSEXP, SEXP n_threadsSEXP, SEXP batch_sizeSEXP) {
+BEGIN_RCPP
+    Rcpp::RObject rcpp_result_gen;
+    Rcpp::RNGScope rcpp_rngScope_gen;
+    Rcpp::traits::input_parameter< std::string >::type forward(forwardSEXP);
+    Rcpp::traits::input_parameter< std::string >::type reverse(reverseSEXP);
+    Rcpp::traits::input_parameter< int >::type n_threads(n_threadsSEXP);
+    Rcpp::traits::input_parameter< int >::type batch_size(batch_sizeSEXP);
+    rcpp_result_gen = Rcpp::wrap(validate_paired_fastq(forward, reverse, n_threads, batch_size));
+    return rcpp_result_gen;
+END_RCPP
+}
+// fastq_profile
+List fastq_profile(std::string path, int max_records, int n_threads, int batch_size, bool debug);
+RcppExport SEXP _METAeDNA_fastq_profile(SEXP pathSEXP, SEXP max_recordsSEXP, SEXP n_threadsSEXP, SEXP batch_sizeSEXP, SEXP debugSEXP) {
+BEGIN_RCPP
+    Rcpp::RObject rcpp_result_gen;
+    Rcpp::RNGScope rcpp_rngScope_gen;
+    Rcpp::traits::input_parameter< std::string >::type path(pathSEXP);
+    Rcpp::traits::input_parameter< int >::type max_records(max_recordsSEXP);
+    Rcpp::traits::input_parameter< int >::type n_threads(n_threadsSEXP);
+    Rcpp::traits::input_parameter< int >::type batch_size(batch_sizeSEXP);
+    Rcpp::traits::input_parameter< bool >::type debug(debugSEXP);
+    rcpp_result_gen = Rcpp::wrap(fastq_profile(path, max_records, n_threads, batch_size, debug));
+    return rcpp_result_gen;
 END_RCPP
 }
 // pairend
@@ -95,18 +142,32 @@ BEGIN_RCPP
     return R_NilValue;
 END_RCPP
 }
-// dereplicate
-void dereplicate(std::string input_fasta, std::string output_fasta, int n_threads, bool compress_output, int compress_level, size_t batch_size);
-RcppExport SEXP _METAeDNA_dereplicate(SEXP input_fastaSEXP, SEXP output_fastaSEXP, SEXP n_threadsSEXP, SEXP compress_outputSEXP, SEXP compress_levelSEXP, SEXP batch_sizeSEXP) {
+// reorder_fastq
+void reorder_fastq(std::string fastq_1, std::string fastq_2, std::string output_fastq, bool compress_output, int compress_level);
+RcppExport SEXP _METAeDNA_reorder_fastq(SEXP fastq_1SEXP, SEXP fastq_2SEXP, SEXP output_fastqSEXP, SEXP compress_outputSEXP, SEXP compress_levelSEXP) {
 BEGIN_RCPP
     Rcpp::RNGScope rcpp_rngScope_gen;
-    Rcpp::traits::input_parameter< std::string >::type input_fasta(input_fastaSEXP);
+    Rcpp::traits::input_parameter< std::string >::type fastq_1(fastq_1SEXP);
+    Rcpp::traits::input_parameter< std::string >::type fastq_2(fastq_2SEXP);
+    Rcpp::traits::input_parameter< std::string >::type output_fastq(output_fastqSEXP);
+    Rcpp::traits::input_parameter< bool >::type compress_output(compress_outputSEXP);
+    Rcpp::traits::input_parameter< int >::type compress_level(compress_levelSEXP);
+    reorder_fastq(fastq_1, fastq_2, output_fastq, compress_output, compress_level);
+    return R_NilValue;
+END_RCPP
+}
+// collapse_sequences
+void collapse_sequences(std::string fasta_file, std::string output_fasta, int n_threads, bool compress_output, int compress_level, size_t batch_size);
+RcppExport SEXP _METAeDNA_collapse_sequences(SEXP fasta_fileSEXP, SEXP output_fastaSEXP, SEXP n_threadsSEXP, SEXP compress_outputSEXP, SEXP compress_levelSEXP, SEXP batch_sizeSEXP) {
+BEGIN_RCPP
+    Rcpp::RNGScope rcpp_rngScope_gen;
+    Rcpp::traits::input_parameter< std::string >::type fasta_file(fasta_fileSEXP);
     Rcpp::traits::input_parameter< std::string >::type output_fasta(output_fastaSEXP);
     Rcpp::traits::input_parameter< int >::type n_threads(n_threadsSEXP);
     Rcpp::traits::input_parameter< bool >::type compress_output(compress_outputSEXP);
     Rcpp::traits::input_parameter< int >::type compress_level(compress_levelSEXP);
     Rcpp::traits::input_parameter< size_t >::type batch_size(batch_sizeSEXP);
-    dereplicate(input_fasta, output_fasta, n_threads, compress_output, compress_level, batch_size);
+    collapse_sequences(fasta_file, output_fasta, n_threads, compress_output, compress_level, batch_size);
     return R_NilValue;
 END_RCPP
 }
@@ -115,9 +176,13 @@ static const R_CallMethodDef CallEntries[] = {
     {"_METAeDNA_stream_accession2taxid_gz", (DL_FUNC) &_METAeDNA_stream_accession2taxid_gz, 3},
     {"_METAeDNA_count_records", (DL_FUNC) &_METAeDNA_count_records, 1},
     {"_METAeDNA_demultiplex", (DL_FUNC) &_METAeDNA_demultiplex, 9},
+    {"_METAeDNA_barcode_split", (DL_FUNC) &_METAeDNA_barcode_split, 9},
     {"_METAeDNA_denoise", (DL_FUNC) &_METAeDNA_denoise, 15},
+    {"_METAeDNA_validate_paired_fastq", (DL_FUNC) &_METAeDNA_validate_paired_fastq, 4},
+    {"_METAeDNA_fastq_profile", (DL_FUNC) &_METAeDNA_fastq_profile, 5},
     {"_METAeDNA_pairend", (DL_FUNC) &_METAeDNA_pairend, 11},
-    {"_METAeDNA_dereplicate", (DL_FUNC) &_METAeDNA_dereplicate, 6},
+    {"_METAeDNA_reorder_fastq", (DL_FUNC) &_METAeDNA_reorder_fastq, 5},
+    {"_METAeDNA_collapse_sequences", (DL_FUNC) &_METAeDNA_collapse_sequences, 6},
     {NULL, NULL, 0}
 };
 

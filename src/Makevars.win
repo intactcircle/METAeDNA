@@ -1,13 +1,9 @@
 CXX_STD = CXX17
-MAKEFLAGS = -j4
-CXXFLAGS = -O2 -Wall -pipe -march=native -mtune=native
-# exclude main.cpp
-OBJECTS = $(filter-out main.o,$(patsubst %.cpp,%.o,$(wildcard *.cpp)))
 
-# PKG_CPPFLAGS =  $(SHLIB_OPENMP_CXXFLAGS)
-PKG_CXXFLAGS = $(SHLIB_OPENMP_CXXFLAGS)
-PKG_LIBS     = -lz -llzma $(SHLIB_OPENMP_CXXFLAGS)
+# Source files and native optimization for local Rtools builds
+OBJECTS = RcppExports.o accession_import.o count.o demultiplex.o denoise.o fastq_profile.o pairend.o reorder_fastq.o seq_compare.o unique.o utils.o
 
-
-PKG_CPPFLAGS = -O2 -DUSE_RCPP_OUTPUT -march=native -mtune=native -fvisibility=hidden -fvisibility-inlines-hidden
-PKG_LIBS += -Wl,--strip-all -static-libgcc -static-libstdc++
+# Package features and libraries
+PKG_CPPFLAGS = -DUSE_RCPP_OUTPUT
+PKG_CXXFLAGS = $(METAEDNA_NATIVE_FLAGS) $(SHLIB_OPENMP_CXXFLAGS)
+PKG_LIBS = -lz $(SHLIB_OPENMP_CXXFLAGS)

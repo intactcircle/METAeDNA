@@ -5,7 +5,7 @@
 \title{Denoise FASTA sequences using abundance and local sequence similarity}
 \usage{
 denoise(
-  input_fasta,
+  fasta_file,
   output_fasta,
   sequence_min_L = 1L,
   sequence_max_L = 1000L,
@@ -23,7 +23,7 @@ denoise(
 )
 }
 \arguments{
-\item{input_fasta}{(character) string; path to the input FASTA file. The file
+\item{fasta_file}{(character) string; path to the input FASTA file. The file
 may be plain text or gzip-compressed (suffix \code{.gz}).}
 
 \item{output_fasta}{(character )string; path to the output FASTA file. If the
@@ -75,6 +75,11 @@ block (with updated \code{size=} and \code{"total_count"} fields).}
 
 \item{compress_output}{(logical) if \code{TRUE}, the output FASTA is written
 as gzip regardless of the file name suffix.}
+
+\item{enable_avx2}{(logical) use AVX2 instructions for sequence comparisons
+when supported by the current CPU.}
+
+\item{debug}{(logical) print additional diagnostic output.}
 
 \item{compress_level}{(integer,between 0 and 9) gzip compression level passed
 to \code{gzopen()} when \code{compress_output} is enabled or the output

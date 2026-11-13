@@ -7,8 +7,8 @@
 ## ---------------------------------------------------------
 ## Locate R compiler
 ## ---------------------------------------------------------
-CXX=`"${R_HOME}/bin/R" CMD config CXX`
-CXXFLAGS=`"${R_HOME}/bin/R" CMD config CXXFLAGS`
+CXX=`"${R_HOME}/bin/R" CMD config CXX17 2>/dev/null`
+CXXFLAGS=`"${R_HOME}/bin/R" CMD config CXX17FLAGS 2>/dev/null`
 CXXLD=`"${R_HOME}/bin/R" CMD config CXXLD`
 
 case "$CXX" in
@@ -18,6 +18,42 @@ case "$CXX" in
     ;;
 esac
 export CXX CXXFLAGS CXXLD
+
+## ---------------------------------------------------------
+## Native compiler optimization
+## ---------------------------------------------------------
+OPT_CXXFLAGS=""
+HOST_CPU=`uname -m`
+
+cat <<EOF > test-opt.cpp
+int main() { return 0; }
+EOF
+
+case "${HOST_CPU}" in
+  x86_64|amd64|i386|i686)
+    CPU_FLAGS="-march=native -mtune=native"
+    ;;
+  arm64|aarch64)
+    CPU_FLAGS="-mcpu=native"
+    ;;
+  *)
+    CPU_FLAGS=""
+    ;;
+esac
+
+if [ "${METAEDNA_NATIVE:-1}" = "0" ]; then CPU_FLAGS=""; fi
+if [ -n "${CPU_FLAGS}" ]; then
+  printf "%s" "* checking native CPU optimization (${CPU_FLAGS})... "
+  if ${CXX} ${CXXFLAGS} ${CPU_FLAGS} test-opt.cpp -o test-opt.exe >> config.log 2>&1; then
+    OPT_CXXFLAGS="${CPU_FLAGS}"
+    echo "yes"
+  else
+    echo "no; using R compiler defaults"
+  fi
+fi
+
+rm -f test-opt.cpp test-opt.exe test-opt.o
+echo "* native CPU optimization: ${OPT_CXXFLAGS:-disabled}"
 
 ## ---------------------------------------------------------
 ## zlib detection (pkg-config)
@@ -44,7 +80,9 @@ else
 fi
 
 if [ "$msg" -ne 0 ]; then
-  echo "*** zlib not usable; compression disabled"
+  zlib_libs="-lz"
+  zlib_cflags=""
+  echo "* pkg-config did not locate zlib; using the compiler's -lz search path"
 fi
 
 ## ---------------------------------------------------------
@@ -145,7 +183,7 @@ detect_openmp () {
       printf "%s" "* checking if libomp installation at ${HOMEBREW_PREFIX}/opt/libomp can be used... "
       LIBOMP_INCLUDE="-I${HOMEBREW_PREFIX}/opt/libomp/include -Xclang -fopenmp"
       LIBOMP_LINK="-Wl,-force_load,${HOMEBREW_PREFIX}/opt/libomp/lib/libomp.dylib -Wl,-rpath,${HOMEBREW_PREFIX}/opt/libomp/lib"
-      if ${CC} ${CFLAGS} ${LIBOMP_INCLUDE} ${LIBOMP_LINK} test-omp.c >> config.log 2>&1; then
+      if ${CXX} ${CXXFLAGS} ${LIBOMP_INCLUDE} ${LIBOMP_LINK} test-omp.cpp >> config.log 2>&1; then
         echo "yes"
 
         export PKG_CXXFLAGS="${PKG_CXXFLAGS} ${LIBOMP_INCLUDE}"
@@ -209,6 +247,7 @@ fi
 sed \
   -e "s|@zlib_cflags@|${zlib_cflags}|" \
   -e "s|@zlib_libs@|${zlib_libs}|" \
+  -e "s|@OPT_CXXFLAGS@|${OPT_CXXFLAGS}|" \
   src/Makevars.in > src/Makevars
 sed -e "s|@PKG_CXXFLAGS@|$PKG_CXXFLAGS|" src/Makevars > src/Makevars.tmp && mv src/Makevars.tmp src/Makevars
 sed -e "s|@PKG_LIBS@|$PKG_LIBS|" src/Makevars > src/Makevars.tmp && mv src/Makevars.tmp src/Makevars

@@ -4,12 +4,7 @@
 \alias{prepare_blast_database}
 \title{Decompress Downloaded NCBI BLAST Database Fragments}
 \usage{
-prepare_blast_database(
-  file_path = ".",
-  database_path = ".",
-  threads = NULL,
-  show_elapsed = T
-)
+prepare_blast_database(file_path = ".", database_path = ".", n_threads = NULL)
 }
 \arguments{
 \item{file_path}{(character) Directory containing downloaded BLAST
@@ -19,35 +14,33 @@ extraction errors. Default is the current working directory.}
 \item{database_path}{(character) Directory where decompressed BLAST
 database files will be written. The directory must be writable.}
 
-\item{threads}{Integer. Number of parallel workers used for decompression.
+\item{n_threads}{Integer. Number of parallel workers used for decompression.
 If \code{NULL}, decompression is performed sequentially. Default is \code{NULL}.}
-
-\item{show_elapsed}{Logical. If \code{TRUE}, the total elapsed time is reported
-using the internal \code{show_time()} function. Default is \code{TRUE}.}
 }
 \value{
 Invisibly returns \code{NULL}. Decompressed BLAST database files are
 written into \code{database_path}.
 }
 \description{
-This function extracts \code{.tar.gz} BLAST database fragments previously
+\code{prepare_blast_database()} extracts \code{.tar.gz} BLAST database fragments previously
 downloaded from the NCBI BLAST FTP server. Each compressed archive is
 decompressed into a specified directory, producing the files required for
 local BLAST database use. Parallel processing is supported via the
-\pkg{future} and \pkg{foreach} frameworks.
+\pkg{future} and \pkg{future.apply} frameworks.
 }
 \details{
 The function scans \code{file_path} for all files matching the pattern
 \code{"tar.gz"} and extracts each archive using \code{untar()}.
-When \code{threads} is specified, parallel processing is performed using
-\pkg{future} and \pkg{foreach} (with \code{\%dofuture\%}).
+When \code{n_threads} is specified, parallel processing is performed using
+\pkg{future} and \pkg{future.apply}.
 
 Each \code{.tar.gz} fragment typically corresponds to a portion of a BLAST
 database (e.g., \code{nt.00.tar.gz}, \code{nt.01.tar.gz}). After extraction, the
 resulting files (e.g., \code{.nhr}, \code{.nin}, \code{.nsq}) form a complete BLAST
-database when all fragments are included.
+database when all fragments are included. Elapsed time is reported when the
+function exits.
 
-Future plans are automatically restored to sequential mode upon exit.
+The previous future plan is restored when the function exits.
 }
 \section{Notes}{
 
@@ -64,9 +57,9 @@ space after decompression.
 \dontrun{
 # Decompress all downloaded BLAST fragments
 prepare_blast_database(
-  file_path = "/data/blast/downloads",
-  database_path = "/data/blast/db",
-  threads = 8
+  file_path = "reference_databases/blast_downloads",
+  database_path = "reference_databases/blast_database",
+  n_threads = 8
 )
 }
 

@@ -6,7 +6,7 @@
 \usage{
 demultiplex(
   fastq_file,
-  primer_table,
+  reaction_table,
   identified_output,
   unidentified_output,
   n_threads = 4L,
@@ -20,16 +20,18 @@ demultiplex(
 \item{fastq_file}{(character) path to the input FASTQ file. The file may be
 plain text or gzip-compressed (suffix \code{.gz}).}
 
-\item{primer_table}{(character) path to a CSV/TSV file containing primer and
-tag definitions. This table must include experiment names, sample names,
-forward and reverse primers, and optional tag sequences.}
+\item{reaction_table}{(character) path to a CSV/TSV file containing primer and
+tag definitions. The columns are \code{experiment},
+\code{reaction_id}, \code{reaction_tag}, \code{forward_primer}, and
+\code{reverse_primer}. A paired tag is written as
+\code{forward_tag:reverse_tag}; a single tag is used for both directions.}
 
 \item{identified_output}{(character) path to the output file that receives
-reads successfully assigned to a sample. If \code{compress_output = TRUE}
+reads successfully assigned to a reaction. If \code{compress_output = TRUE}
 or the file name ends with \code{.gz}, the file is gzip-compressed.}
 
 \item{unidentified_output}{(character) path to the output file for reads
-that cannot be matched to any sample based on the specified primers and
+that cannot be matched to any reaction based on the specified primers and
 tags. Compression behavior is identical to \code{identified_output}.}
 
 \item{n_threads}{(integer) number of parallel threads used for matching
@@ -57,8 +59,15 @@ JSON block in the header containing experiment, sample, tag, primer matches,
 and mismatch counts.
 }
 \description{
-This function assigns each FASTQ read to a sample based on matching forward
+\code{demultiplex()} assigns each FASTQ read to a reaction based on matching forward
 and reverse primers, as well as optional tag sequences. For each read, the
-identified experiment, sample, tag, and primer mismatches are recorded in a
+identified experiment, reaction ID, reaction tag, and primer mismatches are recorded in a
 \code{"demultiplex"} JSON block appended to the FASTA header.
+}
+\details{
+Reaction tags are short oligonucleotide labels attached to primers before
+PCR products are pooled for library preparation (tag-based multiplexing).
+The supplied reaction table uses paired 8-bp tags. Tag length is determined
+by the table; the function does not require 8-bp tags. Tags identify PCR
+reactions, not different target-gene markers or sequencing-library indices.
 }

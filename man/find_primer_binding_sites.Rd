@@ -2,7 +2,7 @@
 % Please edit documentation in R/insilico.R
 \name{find_primer_binding_sites}
 \alias{find_primer_binding_sites}
-\title{Find primer binding sites on the target DNA sequence(s)}
+\title{Find primer binding sites in DNA sequences}
 \usage{
 find_primer_binding_sites(
   target_sequence,
@@ -12,9 +12,9 @@ find_primer_binding_sites(
 )
 }
 \arguments{
-\item{target_sequence}{(character) path to a FASTA file containing the DNA
-sequence(s) to be searched. The file is read using
-\code{Biostrings::readDNAStringSet()}.}
+\item{target_sequence}{A FASTA file path, a DNA sequence or character vector
+of sequences, or a \code{DNAString}/\code{DNAStringSet} object. An existing
+file path is read as FASTA; character values otherwise represent sequences.}
 
 \item{primer}{(character) primer sequence in 5'→3' orientation. If
 \code{is_reverse = TRUE}, the function automatically computes the reverse
@@ -30,44 +30,22 @@ the approximate match, passed to \code{vmatchPattern()} via
 candidate binding regions.}
 }
 \value{
-A \code{MatchesList} object (from the Biostrings package) giving the locations
-of primer binding sites within each target sequence. Each element contains a
-\code{IRanges} object describing the positions of matches.
+A data frame with one row per binding site: \code{sequence_name}, \code{start},
+\code{end}, and \code{strand}. Positions are 1-based and include both primer ends.
+Unnamed sequences are labelled \code{seq_1}, \code{seq_2}, and so on. An empty data
+frame with the same columns is returned when no sites match.
 }
 \description{
-This function identifies potential primer binding positions on a target DNA
-sequence using approximate string matching. It supports forward and reverse
-primers and allows a user-specified number of mismatches when searching for
-primer–template alignments.
-}
-\details{
-The function:
-\itemize{
-\item reads the target sequence(s) into a \code{DNAStringSet},
-\item optionally reverse-complements the primer,
-\item performs approximate pattern matching using
-\code{Biostrings::vmatchPattern()},
-\item returns a list-like object indicating all match positions for each
-input sequence.
-}
+Search a FASTA file or DNA sequences for primer-binding positions. Reverse
+primers are reverse-complemented before matching.
 }
 \examples{
-\dontrun{
-# Search for a forward primer allowing up to 2 mismatches
-find_primer_binding_sites(
-  target_sequence = "chloroplast.fasta",
-  primer = "AGCTTAGGCTAC",
-  is_reverse = FALSE,
-  max_mismatch = 2
-)
-
-# Search for a reverse primer by providing its forward orientation
-find_primer_binding_sites(
-  target_sequence = "chloroplast.fasta",
-  primer = "TCGATACCGGTA",
-  is_reverse = TRUE,
-  max_mismatch = 3
-)
-}
-
+find_primer_binding_sites("ACGTACTGATCGATGCTAGCTAGC",
+                          primer = "ACGTACTG", max_mismatch = 0)
+find_primer_binding_sites(c(a = "ACGTACTG", b = "TTTACGTACTG"),
+                          primer = "ACGTACTG", max_mismatch = 0)
+fasta <- tempfile(fileext = ".fasta")
+writeLines(c(">reference", "ACGTACTGATCGATGCTAGCTAGC"), fasta)
+find_primer_binding_sites(fasta, primer = "ACGTACTG", max_mismatch = 0)
+unlink(fasta)
 }

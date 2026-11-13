@@ -1,13 +1,11 @@
-#' Find primer binding sites on the target DNA sequence(s)
+#' Find primer binding sites in DNA sequences
 #'
-#' This function identifies potential primer binding positions on a target DNA
-#' sequence using approximate string matching. It supports forward and reverse
-#' primers and allows a user-specified number of mismatches when searching for
-#' primer–template alignments.
+#' Search a FASTA file or DNA sequences for primer-binding positions. Reverse
+#' primers are reverse-complemented before matching.
 #'
-#' @param target_sequence (character) path to a FASTA file containing the DNA
-#'   sequence(s) to be searched. The file is read using
-#'   \code{Biostrings::readDNAStringSet()}.
+#' @param target_sequence A FASTA file path, a DNA sequence or character vector
+#'   of sequences, or a \code{DNAString}/\code{DNAStringSet} object. An existing
+#'   file path is read as FASTA; character values otherwise represent sequences.
 #'
 #' @param primer (character) primer sequence in 5'→3' orientation. If
 #'   \code{is_reverse = TRUE}, the function automatically computes the reverse
@@ -22,58 +20,47 @@
 #'   \code{max.mismatch}. Higher values broaden the search and may yield multiple
 #'   candidate binding regions.
 #'
-#' @details
-#' The function:
-#' \itemize{
-#'   \item reads the target sequence(s) into a \code{DNAStringSet},
-#'   \item optionally reverse-complements the primer,
-#'   \item performs approximate pattern matching using
-#'         \code{Biostrings::vmatchPattern()},
-#'   \item returns a list-like object indicating all match positions for each
-#'         input sequence.
-#' }
+#' @return A data frame with one row per binding site: `sequence_name`, `start`,
+#'   `end`, and `strand`. Positions are 1-based and include both primer ends.
+#'   Unnamed sequences are labelled `seq_1`, `seq_2`, and so on. An empty data
+#'   frame with the same columns is returned when no sites match.
 #'
-#' @return
-#' A \code{MatchesList} object (from the Biostrings package) giving the locations
-#' of primer binding sites within each target sequence. Each element contains a
-#' \code{IRanges} object describing the positions of matches.
-#'
-#' @importFrom Biostrings readDNAStringSet DNAString reverseComplement vmatchPattern
+#' @importFrom Biostrings readDNAStringSet DNAString DNAStringSet reverseComplement vmatchPattern
 #'
 #' @examples
-#' \dontrun{
-#' # Search for a forward primer allowing up to 2 mismatches
-#' find_primer_binding_sites(
-#'   target_sequence = "example_data/chloroplast_sequences.fasta",
-#'   primer = "AGCTTAGGCTAC",
-#'   is_reverse = FALSE,
-#'   max_mismatch = 2
-#' )
-#'
-#' # Search for a reverse primer by providing its forward orientation
-#' find_primer_binding_sites(
-#'   target_sequence = "example_data/chloroplast_sequences.fasta",
-#'   primer = "TCGATACCGGTA",
-#'   is_reverse = TRUE,
-#'   max_mismatch = 3
-#' )
-#' }
-#'
+#' find_primer_binding_sites("ACGTACTGATCGATGCTAGCTAGC",
+#'                           primer = "ACGTACTG", max_mismatch = 0)
+#' find_primer_binding_sites(c(a = "ACGTACTG", b = "TTTACGTACTG"),
+#'                           primer = "ACGTACTG", max_mismatch = 0)
+#' fasta <- tempfile(fileext = ".fasta")
+#' writeLines(c(">reference", "ACGTACTGATCGATGCTAGCTAGC"), fasta)
+#' find_primer_binding_sites(fasta, primer = "ACGTACTG", max_mismatch = 0)
+#' unlink(fasta)
 #' @export
 find_primer_binding_sites <- function(target_sequence, primer, is_reverse = FALSE, max_mismatch = 3) {
-  # 转换目标序列为 DNAString 对象
-  target_sequence <- readDNAStringSet(target_sequence)
-  # 如果是反向引物，生成反向互补序列
-  if (is_reverse) {
-    primer <- reverseComplement(DNAString(primer))
-  } else {
-    primer <- DNAString(primer)
+  if (is.character(target_sequence) && length(target_sequence) == 1L &&
+      file.exists(target_sequence)) {
+    target_sequence <- readDNAStringSet(target_sequence)
+  } else if (!inherits(target_sequence, "DNAStringSet")) {
+    target_sequence <- DNAStringSet(target_sequence)
   }
 
-  # 使用 vmatchPattern 查找匹配位置，允许一定的错配
+  primer <- DNAString(primer)
+  if (is_reverse) primer <- reverseComplement(primer)
   matches <- vmatchPattern(primer, target_sequence, max.mismatch = max_mismatch)
-  # 返回结果
-  return(matches)
+  positions <- as.data.frame(matches)
+  if (!nrow(positions)) {
+    return(data.frame(sequence_name = character(), start = integer(),
+                      end = integer(), strand = character()))
+  }
+
+  sequence_names <- names(target_sequence)
+  if (is.null(sequence_names)) sequence_names <- rep("", length(target_sequence))
+  unnamed <- is.na(sequence_names) | !nzchar(sequence_names)
+  sequence_names[unnamed] <- paste0("seq_", which(unnamed))
+  data.frame(sequence_name = sequence_names[positions$group],
+             start = positions$start, end = positions$end,
+             strand = if (is_reverse) "-" else "+")
 }
 # create regex for DNA coding  ---------------
 convert_to_regex <- function(dna_seq) {
@@ -93,13 +80,12 @@ convert_to_regex <- function(dna_seq) {
 
 # in silico pcr base function ----------------------------------
 #' In-silico PCR: identify primer-binding sites and extract predicted amplicons
-#' @noRd
 #'
-#' This function performs an in-silico PCR search on a reference database by
+#' \code{in_silico_base()} searches a reference database by
 #' locating primer-binding sites for forward and reverse primers, allowing
 #' mismatches, optional positional constraints, and optional trimming of primers
 #' from the resulting amplicons. The function supports degenerate bases and
-#' allows users to embed constraint markers (`#`) inside primers to enforce
+#' accepts constraint markers (`#`) inside primers to require
 #' exact matching at specified positions. The search is based on approximate
 #' pattern matching using \code{Biostrings::vmatchPattern()}.
 #'
@@ -108,9 +94,9 @@ convert_to_regex <- function(dna_seq) {
 #'
 #' @param forward (character) Forward primer sequence in 5'→3' orientation.
 #'   Degenerate IUPAC bases are allowed. If the sequence contains one or more
-#'   `#` characters, these positions are treated as *strict* constraints:
-#'   after approximate matching, the corresponding positions in the reference
-#'   must match exactly.
+#'   `#` characters, the primer base immediately before each marker must match
+#'   exactly. The marker does not constrain the following base and is removed
+#'   before primer matching.
 #'
 #' @param reverse (character) Reverse primer sequence in 5'→3' orientation before
 #'   reverse-complementing. The function automatically computes the reverse
@@ -131,6 +117,9 @@ convert_to_regex <- function(dna_seq) {
 #'   constructing possible amplicons.
 #' @param try_reverse (logical) also search the reverse complement of each
 #'   reference sequence.
+#' @param mark_reverse (logical) If \code{TRUE}, append the tag
+#'   \verb{[REVERSE]} to names of amplicons produced by the reverse-complement
+#'   search.
 #'
 #' @param ... Additional arguments (currently ignored; included for forward
 #'   compatibility).
@@ -148,8 +137,8 @@ convert_to_regex <- function(dna_seq) {
 #'   \item Applies strict positional constraints at `#` locations, ensuring
 #'         that the reference sequence base exactly matches the primer base.
 #'   \item Optionally trims primers from the extracted region.
-#'   \item Optionally performs a reverse-strand search (if the object \code{try_reverse}
-#'         is set in the calling environment; not user-exposed here).
+#'   \item Optionally performs a reverse-strand search when
+#'         \code{try_reverse = TRUE}.
 #' }
 #'
 #' This procedure simulates PCR amplification logic: both primers must bind in
@@ -165,8 +154,7 @@ convert_to_regex <- function(dna_seq) {
 #'   \item optional primer trimming.
 #' }
 #'
-#' The names of the returned sequences correspond to the reference IDs and
-#' exclusion of the internal index used during processing.
+#' Returned sequence names retain the reference IDs without the processing index.
 #'
 #' @importFrom Biostrings DNAString DNAStringSet reverseComplement vmatchPattern subseq width
 #' @importFrom stringr str_detect str_remove_all str_remove str_sub
@@ -197,8 +185,13 @@ convert_to_regex <- function(dna_seq) {
 #' )
 #' }
 #'
-in_silico_base <- function(ref_db, forward, reverse, mis_match = 3, trim = TRUE, max_hits = 5, try_reverse = FALSE, ...) {
-  forward_raw <- forward
+#' @noRd
+in_silico_base <- function(ref_db, forward, reverse, mis_match = 3, trim = TRUE,
+                           max_hits = 5, try_reverse = FALSE,
+                           mark_reverse = TRUE, ...) {
+  if (grepl("^#|##", forward) || grepl("^#|##", reverse)) {
+    stop("Each # must follow a primer base.", call. = FALSE)
+  }
   reverse_raw <- reverse
   constraint <- FALSE
   forward_rst <- integer()
@@ -246,7 +239,7 @@ in_silico_base <- function(ref_db, forward, reverse, mis_match = 3, trim = TRUE,
 
     # find constraints -------------------
     if (constraint) {
-      strict_out <- c()
+      strict_keep <- rep(TRUE, nrow(range_table))
       temp_count <- 0
       ## forward constraint
       for (n in forward_rst) {
@@ -254,8 +247,9 @@ in_silico_base <- function(ref_db, forward, reverse, mis_match = 3, trim = TRUE,
         subset_seqs <- subseq(ref_db[range_table$names], start = range_table$fwd_end - pos, end = range_table$fwd_end - pos) %>%
           as.character()
         check_chr <- forward %>% str_sub(start = n - temp_count, end = n - temp_count)
-        #
-        strict_out <- c(strict_out, subset_seqs[!subset_seqs %>% str_detect(convert_to_regex(check_chr))] %>% names())
+        strict_keep <- strict_keep & str_detect(
+          subset_seqs, convert_to_regex(check_chr)
+        )
         temp_count <- temp_count + 1
       }
       ## reverse constraint
@@ -269,11 +263,12 @@ in_silico_base <- function(ref_db, forward, reverse, mis_match = 3, trim = TRUE,
           reverseComplement() %>%
           as.character() %>%
           str_sub(start = n - temp_count, end = n - temp_count)
-        #
-        strict_out <- c(strict_out, subset_seqs[!subset_seqs %>% str_detect(convert_to_regex(check_chr))] %>% names())
+        strict_keep <- strict_keep & str_detect(
+          subset_seqs, convert_to_regex(check_chr)
+        )
         temp_count <- temp_count + 1
       }
-      range_table <- range_table %>% filter(!names %in% strict_out)
+      range_table <- range_table[strict_keep, , drop = FALSE]
     }
     #
     if (trim) {
@@ -298,7 +293,7 @@ in_silico_base <- function(ref_db, forward, reverse, mis_match = 3, trim = TRUE,
   # reverse match
   if(try_reverse){
     ref_db <- ref_db %>% reverseComplement()
-    names(ref_db) <- names(ref_db) %>% paste0("[REVERSE]",.)
+    if (mark_reverse) names(ref_db) <- paste0(names(ref_db), "[REVERSE]")
     # string matching
     match_fwd <- vmatchPattern(forward, ref_db, max.mismatch = mis_match, fixed = FALSE)
     match_rev <- vmatchPattern(reverseComplement(reverse %>% DNAString()) %>% as.character(), ref_db, max.mismatch = mis_match, fixed = FALSE)
@@ -325,34 +320,36 @@ in_silico_base <- function(ref_db, forward, reverse, mis_match = 3, trim = TRUE,
 
       # find constraints -------------------
       if (constraint) {
-        strict_out <- c()
+        strict_keep <- rep(TRUE, nrow(range_table))
         temp_count <- 0
         ## forward constraint
         for (n in forward_rst) {
           pos <- nchar(forward) - (n - temp_count)
           subset_seqs <- subseq(ref_db[range_table$names], start = range_table$fwd_end - pos, end = range_table$fwd_end - pos) %>%
-            as.character()
+          as.character()
           check_chr <- forward %>% str_sub(start = n - temp_count, end = n - temp_count)
-          #
-          strict_out <- c(strict_out, subset_seqs[!subset_seqs %>% str_detect(convert_to_regex(check_chr))] %>% names())
+          strict_keep <- strict_keep & str_detect(
+            subset_seqs, convert_to_regex(check_chr)
+          )
           temp_count <- temp_count + 1
         }
         ## reverse constraint
         # CCGTCAATT#HC#TTY#AAR
         temp_count <- 0
         for (n in reverse_rst) {
-          subset_seqs <- subseq(ref_db[range_table$names], start = range_table$rev_start + n - 1, end = range_table$rev_start + n - 1) %>%
+          subset_seqs <- subseq(ref_db[range_table$names], start = range_table$rev_start + n - 1 - temp_count, end = range_table$rev_start + n - 1 - temp_count) %>%
             as.character()
           check_chr <- reverse %>%
             DNAString() %>%
             reverseComplement() %>%
             as.character() %>%
             str_sub(start = n - temp_count, end = n - temp_count)
-          #
-          strict_out <- c(strict_out, subset_seqs[!subset_seqs %>% str_detect(convert_to_regex(check_chr))] %>% names())
+          strict_keep <- strict_keep & str_detect(
+            subset_seqs, convert_to_regex(check_chr)
+          )
           temp_count <- temp_count + 1
         }
-        range_table <- range_table %>% filter(!names %in% strict_out)
+        range_table <- range_table[strict_keep, , drop = FALSE]
       }
       #
       if (trim) {
@@ -386,7 +383,7 @@ in_silico_base <- function(ref_db, forward, reverse, mis_match = 3, trim = TRUE,
 
 #' In-silico PCR Across Large FASTA Databases
 #'
-#' This function performs an in-silico PCR scan on a potentially large FASTA database
+#' \code{in_silico()} scans a reference FASTA database
 #' by iteratively loading the reference sequences in chunks, locating primer-binding
 #' sites with mismatch tolerance, applying optional strict positional constraints
 #' (via `#` markers), and extracting predicted amplicons. The computation is
@@ -400,20 +397,25 @@ in_silico_base <- function(ref_db, forward, reverse, mis_match = 3, trim = TRUE,
 #' @param forward (character vector) Forward primer or primers in 5'→3' orientation. Degenerate bases
 #'   are supported. Primer sequences may include `#` markers to indicate positional
 #'   *exact-match constraints*. For example, \code{"CCGTCAATT#HC#TTY#AAR"} specifies
-#'   that bases preceding `#` must match exactly in addition to general mismatch
-#'   tolerance.
+#'   that the base immediately before each `#` must match exactly in addition to
+#'   the general mismatch tolerance. The `#` marks the preceding base, not the
+#'   following base, and is removed before primer matching.
 #'
 #' @param reverse (character vector) Reverse primer or primers in 5'→3'
 #'   orientation, paired element-by-element with \code{forward}. Constraint
-#'   markers (`#`) follow the same rules as in the forward primer and are
-#'   evaluated after reverse-complementing.
+#'   markers (`#`) also constrain the base immediately before each marker in the
+#'   supplied 5'→3' primer and are mapped to the corresponding position after
+#'   reverse-complementing.
 #'
 #' @param mis_match (integer >= 0) Maximum number of mismatches allowed during primer
 #'   binding detection. Indels are not permitted.
 #'
 #' @param try_reverse (logical) If \code{TRUE}, an additional search is performed in
 #'   which the entire reference sequence is reverse-complemented prior to matching.
-#'   Returned amplicons from this mode are labeled with the tag \code{"[REVERSE]"}.
+#' @param mark_reverse (logical) When \code{try_reverse = TRUE}, append
+#'   \verb{[REVERSE]} to the end of names of reverse-search amplicons. Set it
+#'   to \code{FALSE} to keep the original reference names. Default is
+#'   \code{TRUE}.
 #'
 #' @param trim (logical) If \code{TRUE}, primers are removed from returned sequences;
 #'   otherwise, primer bases are retained.
@@ -429,19 +431,21 @@ in_silico_base <- function(ref_db, forward, reverse, mis_match = 3, trim = TRUE,
 #'   typically genomic contigs—are removed before searching to greatly reduce
 #'   computation time.
 #'
-#' @param keep_genome_threshhold (integer >= 1) Length threshold defining a
+#' @param keep_genome_threshold (integer >= 1) Length threshold defining a
 #'   "genome-like" sequence. Any reference sequence with length >= this value
 #'   will be excluded when \code{keep_genome = FALSE}.
-#' @param keep_genome_threshold Preferred spelling of
-#'   \code{keep_genome_threshhold}.
-#' @param input_fasta Deprecated alias of \code{fasta_file}.
 #'
 #' @param show_progress (logical) If \code{TRUE}, displays a text progress bar as
 #'   chunks are processed.
-#' @param workers Number of parallel R workers used when multiple primer pairs
+#' @param n_threads Number of parallel R workers used when multiple primer pairs
 #'   are supplied. A value of 1 processes the pairs sequentially.
 #'
 #' @param ... Reserved for future extensions; currently ignored.
+#' @param min_length,max_length Optional minimum and maximum returned amplicon
+#'   lengths in bases, inclusive. `NULL` leaves the corresponding bound unset.
+#'   Length is measured after primer trimming when `trim = TRUE`, and includes
+#'   both primers when `trim = FALSE`. These limits do not filter reference
+#'   sequence lengths.
 #'
 #' @details
 #' The function controls memory usage by loading only subsets of sequences at
@@ -457,23 +461,22 @@ in_silico_base <- function(ref_db, forward, reverse, mis_match = 3, trim = TRUE,
 #'     \itemize{
 #'       \item locate approximate primer matches using \code{Biostrings::vmatchPattern()},
 #'       \item apply strict `#` constraints, if present,
-#'       \item ensure correct forward→reverse orientation,
+#'       \item require forward-to-reverse primer order,
 #'       \item extract amplicons (trimmed or untrimmed),
 #'       \item optionally evaluate reverse-strand amplification.
 #'     }
 #'   \item Concatenate results into a \code{Biostrings::DNAStringSet} object.
 #' }
 #'
-#' This enables efficient simulation of PCR amplification against multi-million
-#' sequence reference databases that cannot be fully loaded into memory.
+#' The reference database is read in chunks rather than loaded in full.
 #'
 #' @return
 #' For one primer pair, a \code{DNAStringSet} containing the predicted
 #' amplicons. For multiple primer pairs, a named list of \code{DNAStringSet}
 #' objects. Names correspond to reference identifiers, with an optional
-#' \code{"[REVERSE]"} prefix when applicable.
+#' \verb{[REVERSE]} suffix when applicable.
 #'
-#' @importFrom Biostrings readDNAStringSet DNAStringSet fasta.index
+#' @importFrom Biostrings readDNAStringSet DNAStringSet fasta.index width
 #' @importFrom dplyr filter
 #' @importFrom utils txtProgressBar setTxtProgressBar
 #'
@@ -487,7 +490,10 @@ in_silico_base <- function(ref_db, forward, reverse, mis_match = 3, trim = TRUE,
 #'   mis_match = 2,
 #'   trim = TRUE,
 #'   chunk_size = 5000,
-#'   try_reverse = TRUE
+#'   try_reverse = TRUE,
+#'   mark_reverse = TRUE,
+#'   min_length = 50,
+#'   max_length = 500
 #' )
 #'
 #' res
@@ -497,25 +503,37 @@ in_silico_base <- function(ref_db, forward, reverse, mis_match = 3, trim = TRUE,
 #'   fasta_file = "reference_databases/reference_sequences.fasta",
 #'   forward = c("CCGTCAATT#HC#TTY#AAR", "GACTCCTACGGGAGGC"),
 #'   reverse = c("GACTACHVGGGTATCTAATCC", "GTATTACCGCGGCTGCT"),
-#'   workers = 2
+#'   n_threads = 2
 #' )
 #' }
 #' @export
 in_silico <-
-  function(fasta_file = NULL, forward, reverse, mis_match = 3, try_reverse = FALSE, trim = TRUE,
+  function(fasta_file = NULL, forward, reverse, mis_match = 3,
+           try_reverse = FALSE, trim = TRUE,
            chunk_size = 10000, max_hits = 5, keep_genome = FALSE,
-           keep_genome_threshhold = 10000, keep_genome_threshold = keep_genome_threshhold,
-           show_progress = FALSE, input_fasta = NULL, workers = 1L, ...){
-    if (is.null(fasta_file)) fasta_file <- input_fasta
-    if (is.null(fasta_file)) stop("fasta_file or input_fasta must be provided.", call. = FALSE)
+           keep_genome_threshold = 10000,
+           show_progress = FALSE, n_threads = 1L,
+           mark_reverse = TRUE, min_length = NULL, max_length = NULL, ...){
+    if (is.null(fasta_file)) stop("fasta_file must be provided.", call. = FALSE)
+    if (!is.null(min_length)) .check_number(min_length, "min_length", 1, .Machine$integer.max, TRUE)
+    if (!is.null(max_length)) .check_number(max_length, "max_length", 1, .Machine$integer.max, TRUE)
+    if (!is.null(min_length) && !is.null(max_length) && min_length > max_length) {
+      stop("min_length must not exceed max_length.", call. = FALSE)
+    }
+    if (length(try_reverse) != 1L || is.na(try_reverse) || !is.logical(try_reverse)) {
+      stop("try_reverse must be TRUE or FALSE.", call. = FALSE)
+    }
+    if (length(mark_reverse) != 1L || is.na(mark_reverse) || !is.logical(mark_reverse)) {
+      stop("mark_reverse must be TRUE or FALSE.", call. = FALSE)
+    }
     if (length(forward) != length(reverse)) {
       stop("forward and reverse must contain the same number of primers.", call. = FALSE)
     }
     if (length(forward) > 1L) {
       old_plan <- future::plan()
       on.exit(future::plan(old_plan), add = TRUE)
-      if (workers > 1L) {
-        future::plan(future::multisession, workers = workers)
+      if (n_threads > 1L) {
+        future::plan(future::multisession, workers = n_threads)
       } else {
         future::plan(future::sequential)
       }
@@ -526,22 +544,24 @@ in_silico <-
           reverse = reverse[i],
           mis_match = mis_match,
           try_reverse = try_reverse,
+          mark_reverse = mark_reverse,
           trim = trim,
           chunk_size = chunk_size,
           max_hits = max_hits,
           keep_genome = keep_genome,
           keep_genome_threshold = keep_genome_threshold,
           show_progress = FALSE,
-          workers = 1L,
+          n_threads = 1L,
+          min_length = min_length,
+          max_length = max_length,
           ...
         )
       }, future.seed = TRUE)
       names(results) <- sprintf("F_%s__R_%s", forward, reverse)
       return(results)
     }
-    keep_genome_threshhold <- keep_genome_threshold
     fas_index <- fasta.index(fasta_file, seqtype="DNA")
-    geno <- fas_index %>% filter(seqlength >= keep_genome_threshhold)
+    geno <- fas_index %>% filter(seqlength >= keep_genome_threshold)
     if(nrow(geno) !=0 & keep_genome == FALSE){
       warning(
         "Genome-length sequences were removed; set keep_genome = TRUE to retain them.",
@@ -549,12 +569,13 @@ in_silico <-
       )
     }
     if(!keep_genome){
-      fas_index <- fas_index %>% filter(seqlength < keep_genome_threshhold)
+      fas_index <- fas_index %>% filter(seqlength < keep_genome_threshold)
     }
     total_rows <- fas_index %>% nrow()
+    if (total_rows == 0L) return(DNAStringSet())
 
     num_chunks <- ceiling(total_rows / chunk_size)
-    if (show_progress) pb <- txtProgressBar(min = 0, max = num_chunks, style = 3)
+    if (show_progress) pb <- txtProgressBar(min = 0, max = num_chunks, width = 40, style = 3)
     insilico_result <- DNAStringSet()
     for (i in seq_len(num_chunks)) {
       start <- (i - 1) * chunk_size + 1
@@ -567,10 +588,16 @@ in_silico <-
         reverse = reverse,
         mis_match = mis_match,
         try_reverse = try_reverse,
+        mark_reverse = mark_reverse,
         trim = trim,
         max_hits = max_hits
       )
       temp_res <- do.call(in_silico_base, args)
+      lengths <- width(temp_res)
+      keep <- rep(TRUE, length(temp_res))
+      if (!is.null(min_length)) keep <- keep & lengths >= min_length
+      if (!is.null(max_length)) keep <- keep & lengths <= max_length
+      temp_res <- temp_res[keep]
       insilico_result <- c(insilico_result, temp_res)
 
       # 处理或保存 chunk
@@ -584,16 +611,13 @@ in_silico <-
 
 
 #' Parallel In-silico PCR for Multiple Primer Pairs
-#' @noRd
 #'
-#' This function performs in-silico PCR for multiple primer pairs in parallel.
+#' \code{in_silico_multiprimer()} performs in-silico PCR for multiple primer pairs.
 #' For each forward–reverse primer pair, it calls \code{in_silico()} and returns
 #' a list of predicted amplicons. The computation is optionally parallelized
-#' using the \pkg{future} and \pkg{future.apply} frameworks, and includes
-#' real-time progress reporting via \pkg{progressr}.
+#' using the \pkg{future} and \pkg{future.apply} frameworks.
 #'
-#' The function is designed for large FASTA databases, where each primer pair
-#' must be evaluated independently and efficiently.
+#' Each primer pair is evaluated independently against the same database.
 #'
 #' @param fasta_file (character)
 #'   Path to the reference FASTA file used for in-silico PCR.
@@ -616,7 +640,9 @@ in_silico <-
 #' @param try_reverse (logical)
 #'   If \code{TRUE}, \code{in_silico()} additionally tests amplification on
 #'   the reverse complement of every reference sequence, returning amplicons
-#'   labeled \code{"[REVERSE]"}.
+#'   from the opposite orientation.
+#' @param mark_reverse (logical) If \code{TRUE}, append \verb{[REVERSE]} to
+#'   names of reverse-search amplicons.
 #'
 #' @param trim (logical)
 #'   If \code{TRUE}, primers are removed from returned amplicons.
@@ -628,10 +654,10 @@ in_silico <-
 #' @param max_hits (integer >= 1)
 #'   Maximum number of primer-binding hits retained per reference sequence.
 #'
-#' @param workers (integer)
+#' @param n_threads (integer)
 #'   Number of parallel workers.
-#'   \code{workers = 1} → sequential execution.
-#'   \code{workers > 1} → parallel execution via \code{future::multisession()}.
+#'   \code{n_threads = 1} → sequential execution.
+#'   \code{n_threads > 1} → parallel execution via \code{future::multisession()}.
 #'
 #' @param ... Additional arguments forwarded to \code{\link{in_silico}}.
 #'
@@ -660,12 +686,8 @@ in_silico <-
 #'   \item Collect all results into a named list.
 #' }
 #'
-#' The function uses \pkg{progressr} to report real-time progress when running
-#' multiple primer pairs.
-#'
 #' @importFrom future plan multisession sequential
 #' @importFrom future.apply future_lapply
-#' @importFrom progressr with_progress progressor handlers
 #' @importFrom Biostrings DNAString DNAStringSet matchPattern readDNAStringSet reverseComplement vmatchPattern
 #'
 #' @examples
@@ -676,65 +698,56 @@ in_silico <-
 #'   reverses   = c("GACTACHVGGGTATCTAATCC", "GTATTACCGCGGCTGCT"),
 #'   mis_match  = 2,
 #'   try_reverse = TRUE,
-#'   workers    = 4
+#'   n_threads    = 4
 #' )
 #'
 #' names(res)
 #' length(res[[1]])
 #' }
+#' @noRd
 in_silico_multiprimer <- function(
     fasta_file,
     forwards,
     reverses,
     mis_match = 3,
     try_reverse = FALSE,
+    mark_reverse = TRUE,
     trim = TRUE,
     chunk_size = 10000,
     max_hits = 5,
-    workers = 1,
+    n_threads = 1,
     ...) {
   # sanity check
   if (length(forwards) != length(reverses)) {
     stop("The forward and reverse primer numbers are inconsistent!")
   }
 
-  # set parallel plan
-  if (workers > 1) {
-    future::plan(future::multisession, workers = workers)
+  old_plan <- future::plan()
+  on.exit(future::plan(old_plan), add = TRUE)
+  if (n_threads > 1) {
+    future::plan(future::multisession, workers = n_threads)
   } else {
     future::plan(future::sequential)
   }
 
-  # progress setup
-  progressr::handlers(global = TRUE)
-  progressr::handlers("progress")
-  start_time <- format(Sys.time(), "%H:%M:%S")
   n_primers <- length(forwards)
-  message("[",start_time  ,"] Running ", n_primers, " primer pairs on ", workers, " worker(s)...")
-
-  # assign readable names
   primer_names <- sprintf("F_%s__R_%s", forwards, reverses)
 
-  results <- NULL
-  progressr::with_progress({
-    p <- progressr::progressor(steps = n_primers)
-    results <- future.apply::future_lapply(seq_len(n_primers), function(i) {
-      p()
-      in_silico(
-        fasta_file = fasta_file,
-        forward = forwards[i],
-        reverse = reverses[i],
-        mis_match = mis_match,
-        try_reverse = try_reverse,
-        trim = trim,
-        chunk_size = chunk_size,
-        max_hits = max_hits,
-        ...
-      )
-    }, future.seed = T)
-  })
+  results <- future.apply::future_lapply(seq_len(n_primers), function(i) {
+    in_silico(
+      fasta_file = fasta_file,
+      forward = forwards[i],
+      reverse = reverses[i],
+      mis_match = mis_match,
+      try_reverse = try_reverse,
+      mark_reverse = mark_reverse,
+      trim = trim,
+      chunk_size = chunk_size,
+      max_hits = max_hits,
+      ...
+    )
+  }, future.seed = TRUE)
 
   names(results) <- primer_names
-  future::plan(future::sequential)
-  return(results)
+  results
 }

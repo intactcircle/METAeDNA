@@ -1,7 +1,6 @@
 
 #define _CRT_SECURE_NO_WARNINGS
-// [[Rcpp::plugins(cpp11)]]
-//#include <Rcpp.h>
+// [[Rcpp::plugins(cpp17)]]
 #include <iostream>
 #include <fstream>
 #include <sstream>
@@ -10,6 +9,7 @@
 #include <unordered_map>
 #include <cstdio>         // For FILE*, fopen, fgets, fread, fclose, fwrite
 #include <cstdlib>        // For getenv, exit
+#include <cctype>
 #include <cstring>        // For strlen, memset, memcpy
 #include <algorithm>      // For std::min, std::reverse, std::transform, std::max
 #include <zlib.h>         // For gzFile, gzopen, gzgets, gzwrite, gzclose
@@ -29,14 +29,6 @@
 #endif
 
 
-
-
-#ifdef USE_RCPP_OUTPUT
-#include <Rcpp.h>
-using namespace Rcpp;
-#else
-#endif
-//
 
 
 // ---------------------------------------
@@ -61,7 +53,7 @@ static void readPrimerFile(
     std::ifstream file(filename);
     if (!file.is_open()) {
         CERR << "Could not open: " << filename << std::endl;
-        return;
+        throw std::runtime_error("Sequence processing failed; see the preceding error.");
     }
     show_time("Table use for demultiplexing was opened...");
     
@@ -71,7 +63,7 @@ static void readPrimerFile(
     // reading header
     if (!std::getline(file, line)) {
         CERR << "[ERROR] Table format was illegal!" << std::endl;
-        return;
+        throw std::runtime_error("Sequence processing failed; see the preceding error.");
     }
 
     // auto detect delim
@@ -87,13 +79,32 @@ static void readPrimerFile(
     std::istringstream headerStream(line);
     std::string header;
     std::vector<std::string> columnNames;
+    std::vector<std::string> displayedColumnNames;
     while (std::getline(headerStream, header, delimiter)) {
-        // remove useless characters
-        header.erase(0, header.find_first_not_of(" \t\r\n\"#"));
+        header.erase(0, header.find_first_not_of(" \t\r\n\""));
         header.erase(header.find_last_not_of(" \t\r\n\"") + 1);
-        if (header == "X.exp" || header == "experiment") header = "exp";
-        if (header == "sample_tag") header = "tags";
-        columnNames.push_back(header);
+        displayedColumnNames.push_back(header);
+
+        std::string key;
+        for (unsigned char c : header) {
+            if (std::isalnum(c)) key.push_back(static_cast<char>(std::tolower(c)));
+        }
+        if (!key.empty() && key.back() == 's') key.pop_back();
+
+        if (key == "exp" || key == "xexp" || key.find("experiment") != std::string::npos)
+            columnNames.push_back("exp");
+        else if (key.find("primer") != std::string::npos &&
+                 (key.find("forward") != std::string::npos || key.find("fwd") != std::string::npos))
+            columnNames.push_back("forward_primer");
+        else if (key.find("primer") != std::string::npos &&
+                 (key.find("reverse") != std::string::npos || key.find("rev") != std::string::npos))
+            columnNames.push_back("reverse_primer");
+        else if (key.find("tag") != std::string::npos)
+            columnNames.push_back("reaction_tag");
+        else if (key.find("reaction") != std::string::npos || key.find("sample") != std::string::npos)
+            columnNames.push_back("reaction_id");
+        else
+            columnNames.push_back(key);
     }
 
     // build index map, seperate column names to index its own
@@ -102,7 +113,7 @@ static void readPrimerFile(
         colIndex[columnNames[i]] = i;
     }
     const std::vector<std::string> required_cols = {
-        "exp", "sample", "forward_primer", "reverse_primer"
+        "exp", "reaction_id", "forward_primer", "reverse_primer"
     };
     for (const auto& col : required_cols) {
         if (!colIndex.count(col)) {
@@ -113,7 +124,7 @@ static void readPrimerFile(
 
     // print debug info
     COUT << "Table colnames: ";
-    for (const auto& col : columnNames) {
+    for (const auto& col : displayedColumnNames) {
         COUT << "[" << col << "] ";
     }
     std::vector < std::pair < std::string, std::string >> primer_pair;
@@ -123,9 +134,7 @@ static void readPrimerFile(
         if (!line.empty() && line.back() == '\r') {
             line.pop_back();
         }
-        if (line.empty()) {
-            continue;  // skip empty
-        }
+        if (line.empty()) continue;
 
         std::istringstream lineStream(line);
         std::string cell;
@@ -141,7 +150,7 @@ static void readPrimerFile(
 		// check index and push back
         if (!row.empty()) {
             if (colIndex["exp"] >= row.size() ||
-                colIndex["sample"] >= row.size() ||
+                colIndex["reaction_id"] >= row.size() ||
                 colIndex["forward_primer"] >= row.size() ||
                 colIndex["reverse_primer"] >= row.size()) {
                 CERR << "[Warning] Skipping incomplete primer table row: " << line << std::endl;
@@ -149,10 +158,10 @@ static void readPrimerFile(
             }
 
             dem_infos.exp.push_back(row[colIndex["exp"]]);
-            dem_infos.sample.push_back(row[colIndex["sample"]]);
+            dem_infos.sample.push_back(row[colIndex["reaction_id"]]);
 
-            if (colIndex.count("tags") && colIndex["tags"] < row.size()) {
-                std::string temp_tag = row[colIndex["tags"]];
+            if (colIndex.count("reaction_tag") && colIndex["reaction_tag"] < row.size()) {
+                std::string temp_tag = row[colIndex["reaction_tag"]];
                 for (auto& x : temp_tag) {
                     x = static_cast<char>(std::toupper(static_cast<unsigned char>(x)));
                 }
@@ -215,13 +224,11 @@ std::vector<size_t> find_base_exact(const std::string& pattern, const std::strin
         return {};
     }
     std::vector<size_t> positions;
-    // cout << pattern.size() << endl;
     long long unsigned bitmask[256];
     std::fill(bitmask, bitmask + 256, ~0ULL);
     for (size_t i = 0; i < psl; i++)
     {
         bitmask[(unsigned char)pattern[i]] &= ~(1ULL << i);
-        // cout << bitset<64>(bitmask[(unsigned char)pattern[i]]) << endl;
         if (pattern[i] != 'A' && pattern[i] != 'C' && pattern[i] != 'G' && pattern[i] != 'T')
 
         {
@@ -319,7 +326,6 @@ std::vector<size_t> find_base_mismatch(const std::string& pattern, const std::st
         return {};
     }
 
-    // cout << pattern.size() << endl;
     long long unsigned bitmask[256];
     std::fill(bitmask, bitmask + 256, ~0ULL);
     for (size_t i = 0; i < psl; i++)
@@ -644,10 +650,10 @@ static std::string append_demultiplex_header(const std::string& raw_id, const hi
     }
 
     std::ostringstream block;
-    block << "\"demultiplex\":{\"sample\":\"" << hit_info.sample
+    block << "\"demultiplex\":{\"reaction_id\":\"" << hit_info.sample
         << "\",\"exp\":\"" << hit_info.exp
         << "\",\"direction\":\"" << hit_info.direction
-        << "\",\"tag\":\"" << (with_tag ? hit_info.ftag + "+" + hit_info.rtag : "none")
+        << "\",\"reaction_tag\":\"" << (with_tag ? hit_info.ftag + "+" + hit_info.rtag : "none")
         << "\",\"fwd\":\"" << hit_info.fwd
         << "\",\"rev\":\"" << hit_info.rev
         << "\",\"fwd_mismatch\":\"" << hit_info.f_mismatch
@@ -668,27 +674,32 @@ static std::string append_demultiplex_header(const std::string& raw_id, const hi
 // ------------------------------
 //' Demultiplex FASTQ reads using primer and tag information
 //'
-//' This function assigns each FASTQ read to a sample based on matching forward
+//' \code{demultiplex()} assigns each FASTQ read to a reaction based on matching forward
 //' and reverse primers, as well as optional tag sequences. For each read, the
-//' identified experiment, sample, tag, and primer mismatches are recorded in a
+//' identified experiment, reaction ID, reaction tag, and primer mismatches are recorded in a
 //' `"demultiplex"` JSON block appended to the FASTA header.
+//'
+//' Reaction tags are short oligonucleotide labels attached to primers before
+//' PCR products are pooled for library preparation (tag-based multiplexing).
+//' The supplied reaction table uses paired 8-bp tags. Tag length is determined
+//' by the table; the function does not require 8-bp tags. Tags identify PCR
+//' reactions, not different target-gene markers or sequencing-library indices.
 //'
 //' @param fastq_file (character) path to the input FASTQ file. The file may be
 //'   plain text or gzip-compressed (suffix \code{.gz}).
 //'
-//' @param primer_table (character) path to a CSV/TSV file containing primer and
-//'   tag definitions. The preferred columns are \code{experiment},
-//'   \code{sample}, \code{sample_tag}, \code{forward_primer}, and
-//'   \code{reverse_primer}. The legacy names \code{exp} and \code{tags} are
-//'   also accepted. A paired tag is written as
+//' @param reaction_table (character) path to a CSV/TSV file containing primer and
+//'   tag definitions. The columns are \code{experiment},
+//'   \code{reaction_id}, \code{reaction_tag}, \code{forward_primer}, and
+//'   \code{reverse_primer}. A paired tag is written as
 //'   \code{forward_tag:reverse_tag}; a single tag is used for both directions.
 //'
 //' @param identified_output (character) path to the output file that receives
-//'   reads successfully assigned to a sample. If \code{compress_output = TRUE}
+//'   reads successfully assigned to a reaction. If \code{compress_output = TRUE}
 //'   or the file name ends with \code{.gz}, the file is gzip-compressed.
 //'
 //' @param unidentified_output (character) path to the output file for reads
-//'   that cannot be matched to any sample based on the specified primers and
+//'   that cannot be matched to any reaction based on the specified primers and
 //'   tags. Compression behavior is identical to \code{identified_output}.
 //'
 //' @param n_threads (integer) number of parallel threads used for matching
@@ -716,12 +727,16 @@ static std::string append_demultiplex_header(const std::string& raw_id, const hi
 //' and mismatch counts.
 //' @export
 // [[Rcpp::export]]
-void demultiplex( std::string fastq_file,  std::string primer_table,
+void demultiplex( std::string fastq_file,  std::string reaction_table,
      std::string identified_output,  std::string unidentified_output,
     int n_threads = 4, bool with_tag = true,
     bool compress_output = false, int compress_level = 6,
     int primer_mismatch = 3)
 {
+    check_processing_parameters(n_threads, 1000000, compress_level);
+    if (primer_mismatch < 0 || primer_mismatch > 63) throw std::invalid_argument("primer_mismatch must be between 0 and 63.");
+    check_output_path(identified_output, {fastq_file, reaction_table, unidentified_output});
+    check_output_path(unidentified_output, {fastq_file, reaction_table});
     int max_threads = detect_system_threads();
     if (n_threads > max_threads) n_threads = max_threads;
     size_t batch_size = 1000000;
@@ -731,7 +746,7 @@ void demultiplex( std::string fastq_file,  std::string primer_table,
     auto start_time = std::chrono::system_clock::now();
     auto now = std::chrono::system_clock::now();
     fastq_file =  expandTilde(fastq_file);
-    primer_table = expandTilde(primer_table);
+    reaction_table = expandTilde(reaction_table);
     identified_output = expandTilde(identified_output);
     unidentified_output = expandTilde(unidentified_output);
 
@@ -739,17 +754,38 @@ void demultiplex( std::string fastq_file,  std::string primer_table,
     // 1. Read demutiplex table
     // ------------------------------
     SampleInfo infos;
-    readPrimerFile(primer_table, infos);
+    readPrimerFile(reaction_table, infos);
     if (infos.forward_primer.empty() || infos.reverse_primer.empty()) {
         CERR << "[Error] No valid primer definitions were loaded." << std::endl;
-        return;
+        throw std::runtime_error("Sequence processing failed; see the preceding error.");
     }
     if (with_tag) {
         for (size_t i = 0; i < infos.ftags.size(); ++i) {
             if (infos.ftags[i].empty() || infos.rtags[i].empty()) {
-                CERR << "[Error] with_tag = TRUE requires a non-empty sample_tag/tags column for every primer-table row." << std::endl;
-                return;
+                CERR << "[Error] with_tag = TRUE requires a non-empty reaction_tag column for every primer-table row." << std::endl;
+                throw std::runtime_error("Sequence processing failed; see the preceding error.");
             }
+        }
+    }
+
+    // A read must map to exactly one table row. With tags enabled, repeated
+    // primers are valid, but the complete primer/tag key must be unique. With
+    // tags disabled, the primer pair itself is the assignment key.
+    std::unordered_map<std::string, size_t> assignment_keys;
+    for (size_t i = 0; i < infos.sample.size(); ++i) {
+        std::string key = infos.forward_primer[i] + "\t" + infos.reverse_primer[i];
+        if (with_tag) {
+            key += "\t" + infos.ftags[i] + "\t" + infos.rtags[i];
+        }
+        auto inserted = assignment_keys.emplace(key, i);
+        if (!inserted.second) {
+            size_t previous = inserted.first->second;
+            CERR << "[Error] Duplicate demultiplex assignment key for samples '"
+                 << infos.sample[previous] << "' and '" << infos.sample[i] << "': "
+                 << (with_tag ? "primer pair and tag pair are identical."
+                              : "primer pair is identical while with_tag = FALSE.")
+                 << std::endl;
+            throw std::runtime_error("Sequence processing failed; see the preceding error.");
         }
     }
 
@@ -759,6 +795,7 @@ void demultiplex( std::string fastq_file,  std::string primer_table,
     bool is_gz_in = isGzFile(fastq_file);
     FILE* fp_plain = nullptr;
     gzFile fp_gz = nullptr;
+    FileGuard input_guard(fp_plain, fp_gz);
     if (is_gz_in) {
 
         fp_gz = gzopen(fastq_file.c_str(), "rb");
@@ -768,7 +805,7 @@ void demultiplex( std::string fastq_file,  std::string primer_table,
     }
     if ((is_gz_in && fp_gz == nullptr) || (!is_gz_in && fp_plain == nullptr)) {
         CERR << "[Error] Cannot open input file: " << fastq_file << std::endl;
-        return;
+        throw std::runtime_error("Sequence processing failed; see the preceding error.");
     }
     /*
     
@@ -784,37 +821,44 @@ void demultiplex( std::string fastq_file,  std::string primer_table,
     // 3. output file type
     // ------------------------------
     bool is_gz_out = false;
+    std::string un_suffix = unidentified_output;
+    std::transform(un_suffix.begin(), un_suffix.end(), un_suffix.begin(), ::tolower);
+    const bool is_gz_un = compress_output || (un_suffix.size() >= 3 && un_suffix.substr(un_suffix.size() - 3) == ".gz");
     {
         auto lo = identified_output;
         std::transform(lo.begin(), lo.end(), lo.begin(), ::tolower);
         if ((lo.size() >= 3 && lo.substr(lo.size() - 3) == ".gz")||compress_output) {
             is_gz_out = true;
-            compress_output = true;
         }
     }
     FILE* out_plain_id = nullptr;
     FILE* out_plain_un = nullptr;
     gzFile out_gz_id = nullptr;
     gzFile out_gz_un = nullptr;
+    FileGuard identified_guard(out_plain_id, out_gz_id), unidentified_guard(out_plain_un, out_gz_un);
     if (is_gz_out) {
         std::string mode = "wb" + std::to_string(compress_level);
         out_gz_id = gzopen(identified_output.c_str(), mode.c_str());
-        out_gz_un = gzopen(unidentified_output.c_str(), mode.c_str());
     }
     else {
         out_plain_id = fopen(identified_output.c_str(), "wb");
+    }
+    if (is_gz_un) {
+        std::string mode = "wb" + std::to_string(compress_level);
+        out_gz_un = gzopen(unidentified_output.c_str(), mode.c_str());
+    } else {
         out_plain_un = fopen(unidentified_output.c_str(), "wb");
     }
-    if ((is_gz_out && (out_gz_id == nullptr || out_gz_un == nullptr)) ||
-        (!is_gz_out && (out_plain_id == nullptr || out_plain_un == nullptr))) {
+    if ((is_gz_out ? !out_gz_id : !out_plain_id) ||
+        (is_gz_un ? !out_gz_un : !out_plain_un)) {
         CERR << "[Error] Cannot open one or more output files." << std::endl;
-        if (fp_plain) fclose(fp_plain);
-        if (fp_gz) gzclose(fp_gz);
-        if (out_plain_id) fclose(out_plain_id);
-        if (out_plain_un) fclose(out_plain_un);
-        if (out_gz_id) gzclose(out_gz_id);
-        if (out_gz_un) gzclose(out_gz_un);
-        return;
+        if (fp_plain) closeFile(fp_plain);
+        if (fp_gz) closeGzip(fp_gz);
+        if (out_plain_id) closeFile(out_plain_id);
+        if (out_plain_un) closeFile(out_plain_un);
+        if (out_gz_id) closeGzip(out_gz_id);
+        if (out_gz_un) closeGzip(out_gz_un);
+        throw std::runtime_error("Sequence processing failed; see the preceding error.");
     }
     /*
     auto writeBuf = [&](const std::string& buf, bool identified) {
@@ -837,9 +881,6 @@ void demultiplex( std::string fastq_file,  std::string primer_table,
     batch.reserve(BATCH);
     show_time("Demultiplexing...");
     show_time("Using " + std::to_string(n_threads) + " thread(s)");
-#ifdef USE_RCPP_OUTPUT
-    size_t intrrupt_count = 0;
-#endif // check interrupt
     while (true) {
         batch.clear();
         FastqRecord rec;
@@ -859,12 +900,10 @@ void demultiplex( std::string fastq_file,  std::string primer_table,
         show_time(temp_string.str(), 2);
         // Setting openmp
 
-        std::vector<std::vector<std::string>> thrId(n_threads), thrUn(n_threads);
+        std::vector<std::string> output_records(batch.size());
+        std::vector<unsigned char> assigned(batch.size());
 #ifdef USE_RCPP_OUTPUT
-        intrrupt_count++;
-        if (intrrupt_count % 100000 == 0) {
-            Rcpp::checkUserInterrupt();
-        }
+        Rcpp::checkUserInterrupt();
 #endif // check interrupt
 #ifdef _OPENMP
 #pragma omp parallel num_threads(n_threads)
@@ -897,24 +936,19 @@ void demultiplex( std::string fastq_file,  std::string primer_table,
                             + r.seq + "\n";
                     }
 
-                    // 
-#ifdef _OPENMP
-#pragma omp critical
-#endif // _OPENMP
-                    {
-                        if (matched) { ++identified_count; }
-                        else { ++unidentified_count; }
-                        //writeBuf(local, matched);
-                        writeBuf(local, is_gz_out,
-                            matched ? out_plain_id : out_plain_un,
-                            matched ? out_gz_id : out_gz_un);
-                    }
+                    output_records[i] = std::move(local);
+                    assigned[i] = matched;
                        
                     
                 }
 #ifdef _OPENMP
     }
 #endif
+        for (size_t i = 0; i < output_records.size(); ++i) {
+            if (assigned[i]) ++identified_count; else ++unidentified_count;
+            writeBuf(output_records[i], assigned[i] ? is_gz_out : is_gz_un, assigned[i] ? out_plain_id : out_plain_un,
+                     assigned[i] ? out_gz_id : out_gz_un);
+        }
         }
 
     
@@ -922,12 +956,12 @@ void demultiplex( std::string fastq_file,  std::string primer_table,
     // ------------------------------
     // 5. 清理
     // ------------------------------
-    if (fp_plain)     fclose(fp_plain);
-    if (fp_gz)        gzclose(fp_gz);
-    if (out_plain_id) fclose(out_plain_id);
-    if (out_plain_un) fclose(out_plain_un);
-    if (out_gz_id)    gzclose(out_gz_id);
-    if (out_gz_un)    gzclose(out_gz_un);
+    if (fp_plain)     closeFile(fp_plain);
+    if (fp_gz)        closeGzip(fp_gz);
+    if (out_plain_id) closeFile(out_plain_id);
+    if (out_plain_un) closeFile(out_plain_un);
+    if (out_gz_id)    closeGzip(out_gz_id);
+    if (out_gz_un)    closeGzip(out_gz_un);
 
     std::ostringstream temp_string;
     temp_string << std::endl << "[Identified]: " + std::to_string(identified_count) + "   [Unidentified]: " + std::to_string(unidentified_count);
@@ -938,5 +972,338 @@ void demultiplex( std::string fastq_file,  std::string primer_table,
     show_time("Done.", 0);
     
     std::chrono::duration<double> elapsed_seconds = end_time - start_time;
+    show_time("", 1, elapsed_seconds.count());
+}
+
+//' Split tagged paired-end reads by PCR reaction
+//'
+//' Read paired FASTQ files in batches, assign each pair by its forward and
+//' reverse tags, remove the matched tags and primers, and write one FASTQ pair
+//' per reaction. This function only splits reads; it does not run DADA2.
+//' Reaction tags are oligonucleotide labels used for tag-based multiplexing
+//' before library pooling. The example tags are 8 bp long; other lengths are
+//' accepted as specified in `reaction_table`.
+//'
+//' @param fastq_1 Path to the R1 FASTQ file.
+//' @param fastq_2 Path to the R2 FASTQ file.
+//' @param reaction_table CSV or tab-delimited reaction table containing
+//'   `experiment`, `reaction_id`, `reaction_tag`, `forward_primer`, and
+//'   `reverse_primer`. Write paired tags as `forward_tag:reverse_tag`.
+//' @param output_dir Empty directory in which the split FASTQ files are written.
+//' @param n_threads Number of threads used to match and trim each batch.
+//' @param batch_size Number of paired reads processed in each batch.
+//' @param compress_output Write gzip-compressed FASTQ files.
+//' @param compress_level Gzip compression level from 0 to 9.
+//' @param with_primer Remove the primers following the tags.
+//'
+//' @return `NULL`, invisibly. Split FASTQ files are written to `output_dir`.
+//'
+//' @details Tags are matched exactly. Primers may contain IUPAC bases but are
+//'   matched without mismatches. A read pair is assigned only when R1 and R2
+//'   match the same row in `reaction_table`.
+//'
+//' @examples
+//' \dontrun{
+//' barcode_split(
+//'   fastq_1 = "run_R1.fastq.gz",
+//'   fastq_2 = "run_R2.fastq.gz",
+//'   reaction_table = "reactions.csv",
+//'   output_dir = "split_fastq",
+//'   n_threads = 8
+//' )
+//' }
+//' @export
+// [[Rcpp::export]]
+void barcode_split(
+    std::string fastq_1, std::string fastq_2, std::string reaction_table,
+    std::string output_dir,
+    int n_threads = 4, int batch_size = 100000, bool compress_output = true,
+    int compress_level = 6, bool with_primer = true) {
+    check_processing_parameters(n_threads, batch_size, compress_level);
+    fastq_1 = expandTilde(fastq_1); fastq_2 = expandTilde(fastq_2);
+    if (std::filesystem::weakly_canonical(fastq_1) == std::filesystem::weakly_canonical(fastq_2))
+        throw std::invalid_argument("R1 and R2 must be different files.");
+    output_dir = expandTilde(output_dir);
+    if (std::filesystem::exists(output_dir) && !std::filesystem::is_empty(output_dir))
+        throw std::invalid_argument("output_dir must be empty.");
+    if (!std::filesystem::exists(output_dir) &&
+        !std::filesystem::create_directories(output_dir))
+        throw std::runtime_error("Cannot create output_dir.");
+    const auto start_time = std::chrono::system_clock::now();
+    const int max_threads = detect_system_threads();
+    if (n_threads < 1) n_threads = 1;
+    if (n_threads > max_threads) n_threads = max_threads;
+    SampleInfo infos;
+    readPrimerFile(expandTilde(reaction_table), infos);
+    const size_t ns = infos.sample.size();
+    if (ns == 0) {
+        CERR << "[Error] No valid sample definitions were loaded." << std::endl;
+        throw std::runtime_error("Sequence processing failed; see the preceding error.");
+    }
+    if (batch_size < 1) {
+        CERR << "[Error] batch_size must be positive." << std::endl;
+        throw std::runtime_error("Sequence processing failed; see the preceding error.");
+    }
+    show_time("Using " + std::to_string(n_threads) + " thread(s)");
+    std::set<std::pair<std::string, std::string>> tag_pairs;
+    std::set<std::pair<size_t, size_t>> tag_length_pairs;
+    std::unordered_map<std::string, size_t> sample_by_tag;
+    for (size_t i = 0; i < ns; ++i) {
+        if (infos.ftags[i].empty() || infos.rtags[i].empty()) {
+            CERR << "[Error] Every sample needs a non-empty paired tag."
+                 << std::endl;
+            throw std::runtime_error("Sequence processing failed; see the preceding error.");
+        }
+        if (!tag_pairs.insert({infos.ftags[i], infos.rtags[i]}).second) {
+            CERR << "[Error] Tag pairs must be unique." << std::endl;
+            throw std::runtime_error("Sequence processing failed; see the preceding error.");
+        }
+        tag_length_pairs.insert({infos.ftags[i].size(), infos.rtags[i].size()});
+        sample_by_tag[infos.ftags[i] + "\t" + infos.rtags[i]] = i;
+    }
+    const std::vector<std::pair<size_t, size_t>> tag_lengths(
+        tag_length_pairs.begin(), tag_length_pairs.end());
+
+    std::set<std::string> unique_samples(infos.sample.begin(), infos.sample.end());
+    const bool use_experiment = unique_samples.size() != ns;
+    std::set<std::string> unique_file_names;
+    std::vector<std::string> forward_output(ns);
+    std::vector<std::string> reverse_output(ns);
+    const std::string suffix = compress_output ? ".fastq.gz" : ".fastq";
+    for (size_t i = 0; i < ns; ++i) {
+        std::string file_name = use_experiment
+            ? infos.exp[i] + "_" + infos.sample[i]
+            : infos.sample[i];
+        std::transform(file_name.begin(), file_name.end(), file_name.begin(),
+            [](unsigned char c) {
+                return (std::isalnum(c) || c == '_' || c == '-' || c == '.')
+                    ? static_cast<char>(c) : '_';
+            });
+        if (!unique_file_names.insert(file_name).second) {
+            CERR << "[Error] Sample names produce duplicate output file names."
+                 << std::endl;
+            throw std::runtime_error("Sequence processing failed; see the preceding error.");
+        }
+        forward_output[i] = output_dir + "/" + file_name + "_R1" + suffix;
+        reverse_output[i] = output_dir + "/" + file_name + "_R2" + suffix;
+    }
+
+    const bool gz1 = isGzFile(fastq_1), gz2 = isGzFile(fastq_2);
+    FILE *p1 = gz1 ? nullptr : fopen(fastq_1.c_str(), "rb");
+    FILE *p2 = gz2 ? nullptr : fopen(fastq_2.c_str(), "rb");
+    gzFile z1 = gz1 ? gzopen(fastq_1.c_str(), "rb") : nullptr;
+    gzFile z2 = gz2 ? gzopen(fastq_2.c_str(), "rb") : nullptr;
+    FileGuard guard1(p1, z1), guard2(p2, z2);
+    if ((gz1 ? z1 == nullptr : p1 == nullptr) || (gz2 ? z2 == nullptr : p2 == nullptr)) {
+        if (p1) closeFile(p1);
+         if (p2) closeFile(p2);
+        if (z1) closeGzip(z1);
+         if (z2) closeGzip(z2);
+        CERR << "[Error] Cannot open paired FASTQ input." << std::endl;
+        throw std::runtime_error("Sequence processing failed; see the preceding error.");
+    }
+    std::vector<bool> written(ns, false);
+    size_t total_count = 0;
+    size_t assigned_count = 0;
+    size_t unassigned_count = 0;
+    bool failed = false;
+
+    auto record_text = [](const FastqRecord& r) {
+        return r.id + "\n" + r.seq + "\n" + r.plus + "\n" + r.qual + "\n";
+    };
+    // Write one batch of demultiplexed reads. The two vectors contain one
+    // accumulated FASTQ string per sample: bf[i] for R1 and br[i] for R2.
+    // `[&]` captures output paths, compression settings, and `written` by
+    // reference, so the lambda updates the same state used by the main loop.
+    auto flush = [&](std::vector<std::string>& bf,
+                     std::vector<std::string>& br) -> bool {
+        for (size_t i = 0; i < ns; ++i) {
+            // No reads from this batch were assigned to sample i.
+            if (bf[i].empty()) continue;
+
+            // forward_output and reverse_output have the same sample order as
+            // bf and br, so index i identifies both files for this sample.
+            const std::string& pf = forward_output[i];
+            const std::string& pr = reverse_output[i];
+            if (compress_output) {
+                // The first batch creates the gzip file (wb); later batches
+                // append another valid gzip member (ab). Readers transparently
+                // decode the concatenated members as a single FASTQ stream.
+                std::string mode = std::string(written[i] ? "ab" : "wb") + std::to_string(compress_level);
+                gzFile of = gzopen(pf.c_str(), mode.c_str());
+                gzFile orv = gzopen(pr.c_str(), mode.c_str());
+                if (!of || !orv) {
+                    if (of) closeGzip(of);
+                    if (orv) closeGzip(orv);
+                    CERR << "[Error] Cannot open output files: "
+                         << pf << " and " << pr << std::endl;
+                    return false;
+                }
+                FILE *plain_f = nullptr, *plain_r = nullptr;
+                FileGuard guard_f(plain_f, of), guard_r(plain_r, orv);
+                writeBuf(bf[i], true, nullptr, of);
+                writeBuf(br[i], true, nullptr, orv);
+                closeGzip(of); closeGzip(orv);
+            } else {
+                // Plain FASTQ files use the equivalent binary write/append
+                // modes. Binary mode prevents newline conversion on Windows.
+                FILE* of = fopen(pf.c_str(), written[i] ? "ab" : "wb");
+                FILE* orv = fopen(pr.c_str(), written[i] ? "ab" : "wb");
+                if (!of || !orv) {
+                    if (of) closeFile(of);
+                     if (orv) closeFile(orv);
+                    CERR << "[Error] Cannot open output files: "
+                         << pf << " and " << pr << std::endl;
+                    return false;
+                }
+                gzFile gzip_f = nullptr, gzip_r = nullptr;
+                FileGuard guard_f(of, gzip_f), guard_r(orv, gzip_r);
+                writeBuf(bf[i], false, of, nullptr);
+                writeBuf(br[i], false, orv, nullptr);
+                closeFile(of); closeFile(orv);
+            }
+
+            // Remember that subsequent batches must append, then release the
+            // batch strings before the next group of reads is processed.
+            written[i] = true;
+            bf[i].clear(); br[i].clear();
+        }
+        return true;
+    };
+
+    // Process consecutive batches until both input files reach EOF.
+    // `for (;;)` has no loop condition because EOF is detected by readRec()
+    // inside the loop. A short final batch is written before the loop ends.
+    for (;;) {
+            // R1 and R2 are read together into equally sized vectors. Input
+            // remains serial because gzip streams are not safe for concurrent
+            // reads; matching and trimming below operate in parallel.
+            std::vector<FastqRecord> batch_r1;
+            std::vector<FastqRecord> batch_r2;
+            batch_r1.reserve(static_cast<size_t>(batch_size));
+            batch_r2.reserve(static_cast<size_t>(batch_size));
+            bool reached_eof = false;
+            for (int i = 0; i < batch_size; ++i) {
+                FastqRecord r1, r2;
+                const bool ok1 = readRec(gz1, p1, z1, r1, true);
+                const bool ok2 = readRec(gz2, p2, z2, r2, true);
+                if (!ok1 && !ok2) break;
+                if (ok1 != ok2) {
+                    CERR << std::endl
+                         << "[Error] Paired FASTQ files have different record counts."
+                         << std::endl;
+                    failed = true;
+                    break;
+                }
+                if (paired_read_id(r1.id) != paired_read_id(r2.id)) {
+                    CERR << std::endl
+                         << "[Error] R1 and R2 identifiers are out of sync. "
+                         << "Check the FASTQ files." << std::endl;
+                    failed = true;
+                    break;
+                }
+                batch_r1.push_back(std::move(r1));
+                batch_r2.push_back(std::move(r2));
+            }
+            if (failed) break;
+            if (batch_r1.empty()) break;
+            reached_eof = batch_r1.size() < static_cast<size_t>(batch_size);
+            total_count += batch_r1.size();
+
+            // Each index is owned by one OpenMP iteration. Threads therefore
+            // modify separate records and result slots without locks.
+            std::vector<size_t> matched_sample(batch_r1.size(), ns);
+#ifdef _OPENMP
+#pragma omp parallel for schedule(static) num_threads(n_threads)
+#endif
+            for (long long read_index = 0;
+                 read_index < static_cast<long long>(batch_r1.size());
+                 ++read_index) {
+                FastqRecord& r1 = batch_r1[static_cast<size_t>(read_index)];
+                FastqRecord& r2 = batch_r2[static_cast<size_t>(read_index)];
+                std::transform(r1.seq.begin(), r1.seq.end(), r1.seq.begin(), ::toupper);
+                std::transform(r2.seq.begin(), r2.seq.end(), r2.seq.begin(), ::toupper);
+                // Identify the sample from the leading tag pair. Only the
+                // distinct tag-length combinations are tested, so each read
+                // is processed once regardless of the number of samples.
+                size_t hit = ns;
+                for (const auto& tag_length : tag_lengths) {
+                    const size_t forward_tag_length = tag_length.first;
+                    const size_t reverse_tag_length = tag_length.second;
+                    if (r1.seq.size() < forward_tag_length ||
+                        r2.seq.size() < reverse_tag_length) continue;
+                    const std::string key =
+                        r1.seq.substr(0, forward_tag_length) + "\t" +
+                        r2.seq.substr(0, reverse_tag_length);
+                    auto sample_it = sample_by_tag.find(key);
+                    if (sample_it == sample_by_tag.end()) continue;
+
+                    const size_t candidate = sample_it->second;
+                    if (with_primer) {
+                        const std::string forward_insert = r1.seq.substr(forward_tag_length);
+                        const std::string reverse_insert = r2.seq.substr(reverse_tag_length);
+                        auto forward_match = find_base_exact(
+                            infos.forward_primer[candidate], forward_insert);
+                        auto reverse_match = find_base_exact(
+                            infos.reverse_primer[candidate], reverse_insert);
+                        if (forward_match.empty() || forward_match[0] != 0 ||
+                            reverse_match.empty() || reverse_match[0] != 0) continue;
+                    }
+                    if (hit != ns) {
+                        hit = ns;
+                        break;
+                    }
+                    hit = candidate;
+                }
+                if (hit == ns) {
+                    continue;
+                }
+                size_t nf = infos.ftags[hit].size() + (with_primer ? infos.forward_primer[hit].size() : 0);
+                size_t nr = infos.rtags[hit].size() + (with_primer ? infos.reverse_primer[hit].size() : 0);
+                if (nf >= r1.seq.size() || nr >= r2.seq.size()) {
+                    continue;
+                }
+                r1.seq.erase(0, nf); r1.qual.erase(0, nf);
+                r2.seq.erase(0, nr); r2.qual.erase(0, nr);
+                matched_sample[static_cast<size_t>(read_index)] = hit;
+            }
+
+            // Merge parallel results in original read order, then write once
+            // per sample for this batch.
+            std::vector<std::string> bf(ns), br(ns);
+            for (size_t i = 0; i < matched_sample.size(); ++i) {
+                const size_t hit = matched_sample[i];
+                if (hit == ns) {
+                    ++unassigned_count;
+                    continue;
+                }
+                bf[hit] += record_text(batch_r1[i]);
+                br[hit] += record_text(batch_r2[i]);
+                ++assigned_count;
+            }
+            if (!flush(bf, br)) {
+                failed = true;
+                break;
+            }
+            show_time("Processed " + std::to_string(total_count) +
+                      " paired reads...", 2);
+            if (reached_eof) break;
+#ifdef USE_RCPP_OUTPUT
+            Rcpp::checkUserInterrupt();
+#endif // check interrupt
+    }
+    if (p1) closeFile(p1);
+    if (p2) closeFile(p2);
+    if (z1) closeGzip(z1);
+    if (z2) closeGzip(z2);
+    if (failed) throw std::runtime_error("Paired FASTQ splitting failed; output is incomplete.");
+
+    COUT << std::endl
+         << "[Total pairs]: " << total_count
+         << "   [Assigned]: " << assigned_count
+         << "   [Unassigned]: " << unassigned_count
+         << std::endl;
+    const auto end_time = std::chrono::system_clock::now();
+    const std::chrono::duration<double> elapsed_seconds = end_time - start_time;
     show_time("", 1, elapsed_seconds.count());
 }

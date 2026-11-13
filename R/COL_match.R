@@ -128,6 +128,8 @@ build_col_taxonomy_database <- function(col_data,
     invisible()
   }
 
+  progress_options <- options(width = 50)
+  on.exit(options(progress_options), add = TRUE)
   readr::read_tsv_chunked(
     file = tsv_path,
     callback = readr::SideEffectChunkCallback$new(callback),
@@ -201,6 +203,12 @@ build_col_taxonomy_database_in_memory <- function(col_data,
 #' standard lineage: `kingdom`, `phylum`, `class`, `order`, `family`, `genus`,
 #' and `species`.
 #'
+#' Input names must not include taxonomic authorship. For example, use
+#' `"Quercus robur"` rather than `"Quercus robur L."`. Authorship is stored
+#' separately in the COL database and is not removed from queries by this
+#' function. Fuzzy matching corrects limited spelling differences but does not
+#' make authorship-containing names valid inputs.
+#'
 #' Exact matching is performed first using normalized scientific names. When
 #' `fuzzy = TRUE`, unmatched names are compared against constrained candidate
 #' sets using edit distance. The fuzzy normalization can treat common OCR or
@@ -210,15 +218,15 @@ build_col_taxonomy_database_in_memory <- function(col_data,
 #' acceptance: the smaller of the ordinary normalized-name distance and the
 #' confusable-normalized distance.
 #'
-#' Constraints can be supplied in two ways. First, if `x` is a data frame and
+#' Constraints can be supplied in two ways. First, if `taxon_names` is a data frame and
 #' contains columns named like taxonomy ranks, for example `kingdom` or
 #' `family`, each row is matched only within those values. Second, fixed
 #' constraints can be passed through arguments such as `kingdom = "Animalia"`.
 #'
-#' @param x A character vector of species names, or a data frame containing a
-#'   species-name column.
+#' @param taxon_names A character vector of species names without authorship, or a data
+#'   frame containing such a species-name column.
 #' @param db_path Path to a SQLite database created by `build_col_taxonomy_database()`.
-#' @param name_col Name of the species-name column when `x` is a data frame.
+#' @param name_col Name of the species-name column when `taxon_names` is a data frame.
 #' @param table SQLite table name used by `build_col_taxonomy_database()`.
 #' @param ranks Taxonomic ranks eligible for matching. Defaults to `"species"`.
 #' @param kingdom,phylum,class,order,family,genus Optional fixed constraints.
@@ -235,12 +243,13 @@ build_col_taxonomy_database_in_memory <- function(col_data,
 #'   accepted names, and lower fuzzy distance.
 #' @param select Extra columns to return from SQLite. Core match columns and
 #'   lineage columns are always returned. `NULL` returns all columns.
-#' @param parallel Logical. If `TRUE`, use `doFuture` for fuzzy matching.
-#' @param workers Number of parallel workers used for fuzzy matching. Defaults
+#' @param parallel Logical. If `TRUE`, use `future.apply` when enough unmatched
+#'   names remain to offset the cost of starting parallel workers.
+#' @param n_threads Number of parallel workers used for fuzzy matching. Defaults
 #'   to 4.
 #'
 #' @return A tibble with original input columns prefixed by `input_` and matched
-#'   COL columns. Important output columns include `match_type`,
+#'   COL columns. Matching results include `match_type`,
 #'   `match_distance`, `input_name_status`, `matched_name_status`, `taxon_id`,
 #'   `scientific_name`, `rank`, `kingdom`, `phylum`, `class`, `order`,
 #'   `family`, `genus`, `species`, `accepted_name`, and
@@ -260,7 +269,7 @@ build_col_taxonomy_database_in_memory <- function(col_data,
 #' )
 #' col_match_species(input, "col.sqlite", fuzzy = TRUE, max_dist = 1)
 #' }
-col_match_species <- function(x,
+col_match_species <- function(taxon_names,
                               db_path,
                               name_col = "species",
                               table = "col_taxa",
@@ -278,7 +287,7 @@ col_match_species <- function(x,
                               return_all = FALSE,
                               select = NULL,
                               parallel = TRUE,
-                              workers = 4L) {
+                              n_threads = 4L) {
   col_require_namespace("DBI")
   col_require_namespace("RSQLite")
   col_require_namespace("dplyr")
@@ -297,8 +306,8 @@ col_match_species <- function(x,
     genus = genus
   )
 
-  name_col <- if (is.character(x)) "species" else col_clean_names(name_col)
-  input <- col_prepare_input(x, name_col)
+  name_col <- if (is.character(taxon_names)) "species" else col_clean_names(name_col)
+  input <- col_prepare_input(taxon_names, name_col)
   rank_cols <- intersect(c("kingdom", "phylum", "class", "order", "family", "genus"), names(input))
   for (col in names(constraints)) {
     input[[col]] <- constraints[[col]]
@@ -313,17 +322,17 @@ col_match_species <- function(x,
     query_fuzzy = col_normalize_name(.data$query_name, confusables = confusables)
   )
   dedupe_cols <- unique(c("query_norm", "query_fuzzy", rank_cols))
-  lookup_map <- input |>
-    dplyr::select(dplyr::all_of(c("input_row", dedupe_cols))) |>
-    dplyr::distinct(dplyr::across(dplyr::all_of(dedupe_cols)), .keep_all = TRUE) |>
+  lookup_map <- input %>%
+    dplyr::select(dplyr::all_of(c("input_row", dedupe_cols))) %>%
+    dplyr::distinct(dplyr::across(dplyr::all_of(dedupe_cols)), .keep_all = TRUE) %>%
     dplyr::mutate(lookup_row = dplyr::row_number())
   input <- dplyr::left_join(
     input,
     dplyr::select(lookup_map, dplyr::all_of(c(dedupe_cols, "lookup_row"))),
     by = dedupe_cols
   )
-  lookup_input <- lookup_map |>
-    dplyr::select(-dplyr::all_of("input_row")) |>
+  lookup_input <- lookup_map %>%
+    dplyr::select(-dplyr::all_of("input_row")) %>%
     dplyr::rename(input_row = "lookup_row")
 
   selected <- col_select_fields(fields, select)
@@ -357,7 +366,7 @@ col_match_species <- function(x,
       max_dist = as.integer(max_dist),
       method = method,
       parallel = parallel,
-      workers = workers
+      n_threads = n_threads
     )
     out <- dplyr::bind_rows(exact, fuzzy_hits)
   } else {
@@ -393,9 +402,9 @@ col_match_species <- function(x,
   out <- dplyr::rename(out, lookup_row = "input_row")
   out <- col_drop_internal_columns(out)
 
-  dplyr::inner_join(input_part, out, by = "lookup_row") |>
-    dplyr::arrange(.data$input_row) |>
-    dplyr::select(-dplyr::all_of(c("input_row", "lookup_row"))) |>
+  dplyr::inner_join(input_part, out, by = "lookup_row") %>%
+    dplyr::arrange(.data$input_row) %>%
+    dplyr::select(-dplyr::all_of(c("input_row", "lookup_row"))) %>%
     tibble::as_tibble()
 }
 
@@ -403,20 +412,27 @@ col_match_species <- function(x,
 #'
 #' Standardize uncorrected species names, remove authorship, expand every COL
 #' match to its accepted name and all synonyms, and then look up every expanded
-#' name in a local NCBI taxonomy SQLite database. Infraspecific markers such as
-#' `subsp.`, `var.`, `f.`, `subvar.`, and `subf.` are retained and normalized.
+#' name in a local NCBI taxonomy SQLite database. Inputs without a COL match are
+#' looked up directly in NCBI using the same standardized name used for COL.
+#' Infraspecific markers
+#' such as `subsp.`, `var.`, `f.`, `subvar.`, and `subf.` are retained and
+#' normalized.
 #'
 #' @param taxon_names Character vector containing uncorrected scientific names.
 #' @param col_db Path to the SQLite database created by `build_col_taxonomy_database()`.
 #' @param ncbi_db Path to the NCBI taxonomy SQLite database created by
 #'   `build_ncbi_taxonomy_database(taxonomy = TRUE)`.
 #' @param col_table Name of the COL table. Default is `"col_taxa"`.
+#' @param ranks,kingdom,phylum,class,order,family,genus,fuzzy,max_dist,method,
+#'   confusables,return_all,select,parallel,n_threads Matching options passed to
+#'   `col_match_species()`.
 #'
 #' @return A tibble containing the original and standardized input names, the
 #'   COL name initially matched, its accepted taxon and accepted name, every COL
 #'   accepted/synonym name in that concept, and corresponding NCBI name classes
-#'   and taxids. Unmatched inputs and COL names without an NCBI match are retained
-#'   with missing values.
+#'   and taxids. For a direct NCBI fallback match, the COL columns are missing.
+#'   Inputs absent from both databases and COL names without an NCBI match are
+#'   retained with missing values.
 #' @export
 #'
 #' @examples
@@ -424,13 +440,30 @@ col_match_species <- function(x,
 #' col_ncbi_crosswalk(
 #'   c("Quercus robur L.", "Acacia nilotica (L.) Delile subsp. indica"),
 #'   col_db = "col.sqlite",
-#'   ncbi_db = "ncbi_taxonomy.sqlite"
+#'   ncbi_db = "ncbi_taxonomy.sqlite",
+#'   fuzzy = TRUE,
+#'   max_dist = 1
 #' )
 #' }
 col_ncbi_crosswalk <- function(taxon_names,
                                col_db,
                                ncbi_db,
-                               col_table = "col_taxa") {
+                               col_table = "col_taxa",
+                               ranks = col_species_match_ranks(),
+                               kingdom = NULL,
+                               phylum = NULL,
+                               class = NULL,
+                               order = NULL,
+                               family = NULL,
+                               genus = NULL,
+                               fuzzy = FALSE,
+                               max_dist = 1L,
+                               method = "lv",
+                               confusables = TRUE,
+                               return_all = FALSE,
+                               select = NULL,
+                               parallel = TRUE,
+                               n_threads = 4L) {
   input_name <- trimws(gsub("[[:space:]]+", " ", as.character(taxon_names)))
   standardized_name <- vapply(input_name, function(x) {
     words <- regmatches(x, gregexpr("[[:alpha:]][[:alpha:]-]*", x))[[1]]
@@ -475,46 +508,123 @@ col_ncbi_crosswalk <- function(taxon_names,
   ncbi_con <- DBI::dbConnect(RSQLite::SQLite(), ncbi_db)
   on.exit(DBI::dbDisconnect(ncbi_con), add = TRUE)
 
+  ncbi_table <- if ("name_aliases" %in% DBI::dbListTables(ncbi_con)) "name_aliases" else "names"
+  query_ncbi_names <- function(search_names) {
+    search_names <- unique(search_names[!is.na(search_names) & nzchar(search_names)])
+    if (!length(search_names)) return(data.frame())
+
+    hits <- lapply(split(search_names, ceiling(seq_along(search_names) / 5000L)), function(chunk) {
+      if (ncbi_table == "name_aliases") {
+        sql <- sprintf(
+          "SELECT tax_id, name, name_class FROM name_aliases WHERE name IN (%s)",
+          paste(DBI::dbQuoteString(ncbi_con, chunk), collapse = ", ")
+        )
+      } else {
+        sql <- sprintf(
+          "SELECT tax_id, name, 'scientific name' AS name_class FROM names WHERE name IN (%s)",
+          paste(DBI::dbQuoteString(ncbi_con, chunk), collapse = ", ")
+        )
+      }
+      DBI::dbGetQuery(ncbi_con, sql)
+    })
+    hits <- do.call(rbind, hits)
+    if (!nrow(hits)) return(data.frame())
+
+    hits$tax_id <- .resolve_ncbi_taxids(ncbi_con, hits$tax_id)
+    current_names <- DBI::dbGetQuery(
+      ncbi_con,
+      sprintf(
+        "SELECT tax_id, name FROM names WHERE tax_id IN (%s)",
+        paste(DBI::dbQuoteLiteral(ncbi_con, unique(hits$tax_id)), collapse = ",")
+      )
+    )
+    names(current_names) <- c("ncbi_taxid", "ncbi_scientific_name")
+    names(hits) <- c("ncbi_taxid", "ncbi_matched_name", "ncbi_name_class")
+    merge(hits, current_names, by = "ncbi_taxid", all.x = TRUE)
+  }
+
+  make_ncbi_fallback <- function(unmatched_input) {
+    # Preserve the supplied name in input_name, but query NCBI with the same
+    # authorship-stripped, normalized name used for the COL lookup.
+    hits <- query_ncbi_names(unmatched_input$standardized_name)
+    if (nrow(hits)) {
+      fallback <- merge(
+        unmatched_input[, c("input_id", "input_name", "standardized_name"), drop = FALSE],
+        hits,
+        by.x = "standardized_name", by.y = "ncbi_matched_name",
+        all.x = TRUE, sort = FALSE
+      )
+    } else {
+      fallback <- unmatched_input[, c("input_id", "input_name", "standardized_name"), drop = FALSE]
+      fallback$ncbi_taxid <- NA_integer_
+      fallback$ncbi_name_class <- NA_character_
+      fallback$ncbi_scientific_name <- NA_character_
+    }
+    fallback$accepted_taxon_id <- NA_character_
+    fallback$col_input_match_name <- NA_character_
+    fallback$col_input_match_status <- NA_character_
+    fallback$col_accepted_name <- NA_character_
+    fallback$col_taxon_id <- NA_character_
+    fallback$col_name <- NA_character_
+    fallback$col_name_status <- NA_character_
+    fallback$col_rank <- NA_character_
+    fallback$col_authorship <- NA_character_
+    fallback
+  }
+
+  matches <- col_match_species(
+    taxon_names = data.frame(
+      crosswalk_id = input$input_id,
+      species = input$standardized_name,
+      stringsAsFactors = FALSE
+    ),
+    db_path = col_db,
+    name_col = "species",
+    table = col_table,
+    ranks = ranks,
+    kingdom = kingdom,
+    phylum = phylum,
+    class = class,
+    order = order,
+    family = family,
+    genus = genus,
+    fuzzy = fuzzy,
+    max_dist = max_dist,
+    method = method,
+    confusables = confusables,
+    return_all = return_all,
+    select = select,
+    parallel = parallel,
+    n_threads = n_threads
+  )
+
+  initial <- data.frame()
+  if (nrow(matches)) {
+    initial <- data.frame(
+      input_id = matches$input_crosswalk_id,
+      col_input_match_name = matches$scientific_name,
+      col_input_match_status = matches$input_name_status,
+      accepted_taxon_id = matches$accepted_taxon_id,
+      match_type = matches$match_type,
+      match_distance = matches$match_distance,
+      stringsAsFactors = FALSE
+    )
+  }
+
+  if (!nrow(initial)) {
+    result <- make_ncbi_fallback(input)
+    result <- result[order(result$input_id), , drop = FALSE]
+    rownames(result) <- NULL
+    return(tibble::as_tibble(result))
+  }
+
+  accepted_ids <- unique(initial$accepted_taxon_id[!is.na(initial$accepted_taxon_id)])
   col_fields <- DBI::dbListFields(col_con, col_table)
   wanted <- intersect(
     c("taxon_id", "parent_id", "accepted_name_usage_id", "scientific_name",
-      "scientific_name_norm", "status", "rank", "authorship"),
+      "status", "rank", "authorship"),
     col_fields
   )
-  query_names <- unique(input$query_norm[!is.na(input$query_norm) & nzchar(input$query_norm)])
-  initial <- lapply(split(query_names, ceiling(seq_along(query_names) / 5000L)), function(chunk) {
-    sql <- sprintf(
-      "SELECT %s FROM %s WHERE scientific_name_norm IN (%s)",
-      paste(DBI::dbQuoteIdentifier(col_con, wanted), collapse = ", "),
-      DBI::dbQuoteIdentifier(col_con, col_table),
-      paste(DBI::dbQuoteString(col_con, chunk), collapse = ", ")
-    )
-    DBI::dbGetQuery(col_con, sql)
-  })
-  initial <- if (length(initial)) do.call(rbind, initial) else data.frame()
-
-  if (!nrow(initial)) {
-    input$query_norm <- NULL
-    return(tibble::as_tibble(input))
-  }
-
-  for (column in c("parent_id", "accepted_name_usage_id", "status", "rank", "authorship")) {
-    if (!column %in% names(initial)) initial[[column]] <- NA_character_
-  }
-
-  initial <- merge(input, initial, by.x = "query_norm", by.y = "scientific_name_norm")
-  synonym_status <- c("synonym", "ambiguous synonym", "misapplied")
-  is_synonym <- tolower(initial$status) %in% synonym_status
-  accepted_id <- as.character(initial$taxon_id)
-  explicit_id <- as.character(initial$accepted_name_usage_id)
-  parent_id <- as.character(initial$parent_id)
-  accepted_id[is_synonym & !is.na(parent_id) & nzchar(parent_id)] <- parent_id[is_synonym & !is.na(parent_id) & nzchar(parent_id)]
-  accepted_id[is_synonym & !is.na(explicit_id) & nzchar(explicit_id)] <- explicit_id[is_synonym & !is.na(explicit_id) & nzchar(explicit_id)]
-  initial$accepted_taxon_id <- accepted_id
-  names(initial)[names(initial) == "scientific_name"] <- "col_input_match_name"
-  names(initial)[names(initial) == "status"] <- "col_input_match_status"
-
-  accepted_ids <- unique(initial$accepted_taxon_id[!is.na(initial$accepted_taxon_id)])
   expanded <- lapply(split(accepted_ids, ceiling(seq_along(accepted_ids) / 5000L)), function(chunk) {
     ids <- paste(DBI::dbQuoteString(col_con, chunk), collapse = ", ")
     sql <- sprintf(
@@ -529,6 +639,7 @@ col_ncbi_crosswalk <- function(taxon_names,
     DBI::dbGetQuery(col_con, sql)
   })
   expanded <- do.call(rbind, expanded)
+  synonym_status <- c("synonym", "ambiguous synonym", "misapplied")
   for (column in c("parent_id", "accepted_name_usage_id", "status", "rank", "authorship")) {
     if (!column %in% names(expanded)) expanded[[column]] <- NA_character_
   }
@@ -552,43 +663,17 @@ col_ncbi_crosswalk <- function(taxon_names,
   names(expanded)[names(expanded) == "authorship"] <- "col_authorship"
 
   crosswalk <- merge(
-    initial[, c("input_id", "input_name", "standardized_name", "col_input_match_name",
-                "col_input_match_status", "accepted_taxon_id"), drop = FALSE],
+    initial[, c("input_id", "col_input_match_name", "col_input_match_status",
+                "accepted_taxon_id", "match_type", "match_distance"), drop = FALSE],
     expanded[, c("accepted_taxon_id", "col_accepted_name", "col_taxon_id", "col_name",
                  "col_name_status", "col_rank", "col_authorship"), drop = FALSE],
     by = "accepted_taxon_id"
   )
 
-  ncbi_table <- if ("name_aliases" %in% DBI::dbListTables(ncbi_con)) "name_aliases" else "names"
   ncbi_names <- unique(crosswalk$col_name)
-  ncbi_hits <- lapply(split(ncbi_names, ceiling(seq_along(ncbi_names) / 5000L)), function(chunk) {
-    if (ncbi_table == "name_aliases") {
-      sql <- sprintf(
-        "SELECT tax_id, name, name_class FROM name_aliases WHERE name IN (%s)",
-        paste(DBI::dbQuoteString(ncbi_con, chunk), collapse = ", ")
-      )
-    } else {
-      sql <- sprintf(
-        "SELECT tax_id, name, 'scientific name' AS name_class FROM names WHERE name IN (%s)",
-        paste(DBI::dbQuoteString(ncbi_con, chunk), collapse = ", ")
-      )
-    }
-    DBI::dbGetQuery(ncbi_con, sql)
-  })
-  ncbi_hits <- do.call(rbind, ncbi_hits)
+  ncbi_hits <- query_ncbi_names(ncbi_names)
 
   if (nrow(ncbi_hits)) {
-    ncbi_hits$tax_id <- .resolve_ncbi_taxids(ncbi_con, ncbi_hits$tax_id)
-    current_names <- DBI::dbGetQuery(
-      ncbi_con,
-      sprintf(
-        "SELECT tax_id, name FROM names WHERE tax_id IN (%s)",
-        paste(DBI::dbQuoteLiteral(ncbi_con, unique(ncbi_hits$tax_id)), collapse = ",")
-      )
-    )
-    names(current_names) <- c("ncbi_taxid", "ncbi_scientific_name")
-    names(ncbi_hits) <- c("ncbi_taxid", "ncbi_matched_name", "ncbi_name_class")
-    ncbi_hits <- merge(ncbi_hits, current_names, by = "ncbi_taxid", all.x = TRUE)
     crosswalk <- merge(crosswalk, ncbi_hits, by.x = "col_name", by.y = "ncbi_matched_name", all.x = TRUE)
   } else {
     crosswalk$ncbi_taxid <- NA_integer_
@@ -601,6 +686,16 @@ col_ncbi_crosswalk <- function(taxon_names,
     crosswalk[, setdiff(names(crosswalk), c("input_name", "standardized_name")), drop = FALSE],
     by = "input_id", all.x = TRUE, sort = FALSE
   )
+
+  unmatched_input <- input[!input$input_id %in% initial$input_id, , drop = FALSE]
+  if (nrow(unmatched_input)) {
+    result <- result[result$input_id %in% initial$input_id, , drop = FALSE]
+    fallback <- make_ncbi_fallback(unmatched_input)
+    all_columns <- union(names(result), names(fallback))
+    for (column in setdiff(all_columns, names(result))) result[[column]] <- NA
+    for (column in setdiff(all_columns, names(fallback))) fallback[[column]] <- NA
+    result <- rbind(result[, all_columns, drop = FALSE], fallback[, all_columns, drop = FALSE])
+  }
   result <- result[order(result$input_id, result$accepted_taxon_id, result$col_name), , drop = FALSE]
   rownames(result) <- NULL
   tibble::as_tibble(result)
@@ -931,27 +1026,35 @@ col_fuzzy_matches <- function(con,
                               max_dist,
                               method,
                               parallel,
-                              workers) {
+                              n_threads) {
   if (nrow(input) == 0L) {
     return(tibble::tibble())
   }
 
   rows <- lapply(seq_len(nrow(input)), function(i) input[i, , drop = FALSE])
-  if (isTRUE(parallel) && length(rows) > 1L) {
-    out <- col_future_lapply(rows, function(row_data) {
+  use_parallel <- isTRUE(parallel) &&
+    length(rows) >= max(20L, as.integer(n_threads) * 2L)
+  if (use_parallel) {
+    groups <- split(seq_along(rows),
+                    rep_len(seq_len(min(as.integer(n_threads), length(rows))),
+                            length(rows)))
+    out <- col_future_lapply(groups, function(indices) {
       worker_con <- DBI::dbConnect(RSQLite::SQLite(), db_path)
       on.exit(DBI::dbDisconnect(worker_con), add = TRUE)
-      col_fuzzy_match_one(
-        con = worker_con,
-        table = table,
-        row_data = row_data,
-        selected = selected,
-        ranks = ranks,
-        rank_cols = rank_cols,
-        max_dist = max_dist,
-        method = method
-      )
-    }, workers = workers)
+      lapply(rows[indices], function(row_data) {
+        col_fuzzy_match_one(
+          con = worker_con,
+          table = table,
+          row_data = row_data,
+          selected = selected,
+          ranks = ranks,
+          rank_cols = rank_cols,
+          max_dist = max_dist,
+          method = method
+        )
+      })
+    }, n_threads = n_threads)
+    out <- unlist(out, recursive = FALSE)
   } else {
     out <- lapply(rows, function(row_data) {
       col_fuzzy_match_one(
@@ -980,13 +1083,21 @@ col_fuzzy_match_one <- function(con,
   min_len <- nchar(row_data$query_fuzzy[[1]]) - max_dist
   max_len <- nchar(row_data$query_fuzzy[[1]]) + max_dist
   initial <- substr(row_data$query_fuzzy[[1]], 1L, 1L)
+  fuzzy_column <- DBI::dbQuoteIdentifier(con, "scientific_name_fuzzy")
+  prefix_start <- DBI::dbQuoteString(con, initial)
+  prefix_end <- DBI::dbQuoteString(con, paste0(initial, "\U0010ffff"))
   where <- c(
     col_sql_in(con, "rank", ranks),
-    col_sql_in(con, "substr(scientific_name_fuzzy, 1, 1)", initial, quote_identifier = FALSE),
+    sprintf("%s >= %s AND %s < %s",
+            fuzzy_column, prefix_start, fuzzy_column, prefix_end),
     sprintf("length(scientific_name_fuzzy) BETWEEN %d AND %d", max(1L, min_len), max_len),
     col_group_where(con, row_data, rank_cols)
   )
-  sql <- col_sql_select(con, table, selected, where)
+  candidate_fields <- intersect(
+    c("taxon_id", "scientific_name_norm", "scientific_name_fuzzy"),
+    selected
+  )
+  sql <- col_sql_select(con, table, candidate_fields, where)
   candidates <- tibble::as_tibble(DBI::dbGetQuery(con, sql))
   if (nrow(candidates) == 0L) {
     return(NULL)
@@ -999,10 +1110,18 @@ col_fuzzy_match_one <- function(con,
   if (length(keep) == 0L) {
     return(NULL)
   }
-  hit <- candidates[keep, , drop = FALSE]
+  matched <- candidates[keep, , drop = FALSE]
+  hit_sql <- col_sql_select(
+    con,
+    table,
+    selected,
+    col_sql_in(con, "taxon_id", matched$taxon_id)
+  )
+  hit <- tibble::as_tibble(DBI::dbGetQuery(con, hit_sql))
+  distance_index <- match(hit$taxon_id, matched$taxon_id)
   hit$input_row <- row_data$input_row[[1]]
   hit$match_type <- "fuzzy"
-  hit$match_distance <- as.integer(keep_distance[keep])
+  hit$match_distance <- as.integer(keep_distance[keep][distance_index])
   hit
 }
 
@@ -1074,7 +1193,7 @@ col_add_accepted_names <- function(con, table, hits) {
       where = col_sql_in(con, "taxon_id", chunk)
     )
     tibble::as_tibble(DBI::dbGetQuery(con, sql))
-  }) |>
+  }) %>%
     dplyr::bind_rows()
 
   if (nrow(accepted) == 0L) {
@@ -1161,29 +1280,16 @@ col_coalesce_columns <- function(x, ...) {
   do.call(dplyr::coalesce, values)
 }
 
-col_future_lapply <- function(x, fun, workers) {
-  col_require_namespace("doFuture")
+col_future_lapply <- function(x, fun, n_threads) {
   col_require_namespace("future")
-  col_require_namespace("foreach")
+  col_require_namespace("future.apply")
 
   old_plan <- future::plan()
   on.exit(future::plan(old_plan), add = TRUE)
 
   strategy <- if (.Platform$OS.type == "windows") future::multisession else future::multicore
-  future::plan(strategy, workers = as.integer(workers))
-  doFuture::registerDoFuture()
-
-  foreach::`%dopar%`(
-    foreach::foreach(
-      i = x,
-      .export = c(
-        "col_fuzzy_match_one", "col_string_distance", "col_sql_in",
-        "col_sql_select", "col_group_where", "col_normalize_name"
-      ),
-      .packages = character()
-    ),
-    fun(i)
-  )
+  future::plan(strategy, workers = as.integer(n_threads))
+  future.apply::future_lapply(x, fun, future.seed = TRUE)
 }
 
 col_group_input <- function(input, rank_cols) {

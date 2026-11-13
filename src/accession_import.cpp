@@ -201,7 +201,7 @@ double stream_accession2taxid_gz(
             Named("taxid") = wrap(taxids),
             Named("gi") = wrap(gis)
         ));
-        checkUserInterrupt();
+        Rcpp::checkUserInterrupt();
     };
 
     return stream_accession2taxid_core(input_file, chunk_size, emit_batch);

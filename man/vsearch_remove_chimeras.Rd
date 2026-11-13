@@ -6,13 +6,13 @@
 \usage{
 vsearch_remove_chimeras(
   vsearch_exe_path = NULL,
-  input_fasta,
+  fasta_file,
   output_fasta,
   mode = c("uchime_denovo", "uchime2_denovo", "uchime3_denovo", "uchime_ref"),
   output_mode = c("nonchimeras", "chimeras", "uchimealns", "uchimeout"),
   ref_fasta = NULL,
   minuniquesize = NULL,
-  threads = NULL
+  n_threads = NULL
 )
 }
 \arguments{
@@ -20,7 +20,7 @@ vsearch_remove_chimeras(
 executable. If \code{NULL}, the function searches for \code{"vsearch"} on
 the system PATH using \code{detect_cmd()}.}
 
-\item{input_fasta}{(character) path to the input FASTA file containing the
+\item{fasta_file}{(character) path to the input FASTA file containing the
 sequences to be checked for chimeras.}
 
 \item{output_fasta}{(character) path to the output FASTA file. The content
@@ -53,7 +53,7 @@ be left \code{NULL}.}
 (VSEARCH \code{--minuniquesize}) used mainly in de novo chimera detection.
 If \code{NULL}, the option is omitted.}
 
-\item{threads}{(integer or NULL) number of CPU threads to pass to VSEARCH via
+\item{n_threads}{(integer or NULL) number of CPU threads to pass to VSEARCH via
 \code{--threads}. If \code{NULL}, threading is not explicitly set.}
 }
 \value{
@@ -65,32 +65,16 @@ Returns the exit status of the executed VSEARCH command (integer). Also prints:
 }
 }
 \description{
-This function provides a wrapper for several VSEARCH chimera detection
-algorithms, including \code{uchime_denovo}, \code{uchime2_denovo},
-\code{uchime3_denovo}, and \code{uchime_ref}. It automatically constructs and
-executes the corresponding VSEARCH command, optionally using a user-specified
-VSEARCH executable path. Both reference-free and reference-based chimera
-detection modes are supported.
+\code{vsearch_remove_chimeras()} runs VSEARCH's \code{uchime_denovo},
+\code{uchime2_denovo}, \code{uchime3_denovo}, or \code{uchime_ref} algorithm.
+Reference-based detection requires a reference FASTA file.
 }
 \examples{
 \dontrun{
-# De novo chimera removal (uchime3_denovo)
+# collapsed.fasta is the output of collapse_sequences().
 vsearch_remove_chimeras(
-  input_fasta  = "seqs.fasta",
-  output_fasta = "seqs_nonchimeras.fasta",
-  mode         = "uchime3_denovo",
-  output_mode  = "nonchimeras",
-  threads      = 8
+  fasta_file = "collapsed.fasta", output_fasta = "nonchimera.fasta",
+  mode = "uchime3_denovo", n_threads = 4
 )
-
-# Reference-based chimera removal
-vsearch_remove_chimeras(
-  input_fasta  = "seqs.fasta",
-  output_fasta = "seqs_filtered.fasta",
-  mode         = "uchime_ref",
-  ref_fasta    = "silva.fasta",
-  output_mode  = "nonchimeras"
-)
-}
-
+}#'
 }

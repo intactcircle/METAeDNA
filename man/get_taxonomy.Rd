@@ -2,90 +2,200 @@
 % Please edit documentation in R/ncbi_taxonomy.R
 \name{get_taxonomy}
 \alias{get_taxonomy}
-\title{Retrieve Taxonomic Lineages from a Local NCBI Taxonomy SQLite Database}
+\title{Retrieve NCBI taxonomy and annotate BLAST results}
 \usage{
 get_taxonomy(
   sql_path,
-  tax_ids = NULL,
-  tax_names = NULL,
-  dereplicate = TRUE,
+  taxids = NULL,
+  taxon_names = NULL,
+  blast_result = NULL,
+  col_path = NULL,
+  dereplicate = FALSE,
   rank_name = c("kingdom", "phylum", "class", "order", "family", "genus", "species"),
-  show_elapsed = T
+  keep_input_taxid = FALSE,
+  quiet = FALSE
 )
 }
 \arguments{
 \item{sql_path}{(character) File path to the SQLite database containing
 NCBI taxonomy tables (\code{nodes}, \code{names}).}
 
-\item{tax_ids}{(integer vector) NCBI taxonomy IDs to query.
-Cannot be used together with \code{tax_names}.}
+\item{taxids}{NCBI taxonomy IDs to query. Spaces are removed before values
+are converted to numeric tax IDs. Values that are not valid numbers are
+converted to \code{NA} with a warning. Cannot be used together with
+\code{taxon_names}.}
 
-\item{tax_names}{(character vector). Scientific names to query.
-The function will internally retrieve the corresponding tax IDs.}
+\item{taxon_names}{(character vector). Scientific names to query.
+Repeated whitespace is normalized with \code{stringr::str_squish()} before the
+corresponding tax IDs are retrieved. The returned \code{query_tax_name} column
+retains the original input values.}
+
+\item{blast_result}{A data frame or the tabular output file written by
+\code{blastn_cmd()}. The BLAST rows are expanded by \code{staxids}, joined
+to NCBI taxonomy, and returned with the original BLAST columns so the
+result can be passed directly to \code{find_lca()}.}
+
+\item{col_path}{Optional Catalogue of Life SQLite database created by
+\code{build_col_taxonomy_database()}. NCBI species names are matched
+against accepted names and synonyms in COL. Successful matches replace
+the NCBI lineage with the COL accepted lineage.}
 
 \item{dereplicate}{(logical) If \code{TRUE}, duplicated query entries are removed
-after lineage construction. Default is \code{TRUE}.}
+after lineage construction. Default is \code{FALSE}. This argument applies to
+direct TaxID or name queries; BLAST rows are retained for LCA analysis.}
 
 \item{rank_name}{(character vector) Ordered taxonomic ranks to extract.
 Must be given from highest to lowest rank. The default is
 \code{c("kingdom","phylum","class","order","family","genus","species")}.}
 
-\item{show_elapsed}{(logical) If \code{TRUE}, elapsed time is printed using
-the internal \code{show_time()} function. Default is \code{TRUE}.}
+\item{keep_input_taxid}{(logical) if \code{TRUE}, include an
+\code{input_taxid} column containing the originally requested IDs.
+\code{query_taxid} always contains the current ID after applying
+\code{merged.dmp} redirects. Default is \code{FALSE}.}
+
+\item{quiet}{Suppress status and elapsed-time messages. Default is \code{FALSE}.}
 }
 \value{
 A data frame containing:
 \describe{
-\item{\code{query_tax_id}}{
-Input tax ID or the tax ID matched to the given scientific name.
+\item{\code{query_taxid}}{
+Current NCBI tax ID after resolving obsolete IDs through
+\code{merged.dmp} and qualified species through
+\code{species_equivalents}.
 }
 \item{Taxonomic ranks}{
 One column per rank specified in \code{rank_name}.
 }
 \item{Matched name information}{
-When \code{tax_names} is used, additional columns reporting the original
+When \code{taxon_names} is used, additional columns reporting the original
 taxon names and the matched tax IDs are included.
+}
+\item{BLAST annotation}{
+When \code{blast_result} is used, all BLAST columns, NCBI lineage
+columns, \code{ncbi_species}, logical \code{resolved}, and optional COL
+identifiers are returned.
 }
 }
 Missing ranks are filled with \code{NA}.
-
-query table
 }
 \description{
-This function queries a local SQLite database containing NCBI taxonomy
+\code{get_taxonomy()} queries a local SQLite database containing NCBI taxonomy
 tables (\code{nodes} and \code{names}) and returns taxonomic lineages for a set of
 tax IDs or taxon names. The function performs a recursive SQL query to
 traverse parent nodes until reaching the root, then extracts and reshapes
 lineage information for user-defined taxonomic ranks.
 }
 \details{
+Exactly one of \code{taxids}, \code{taxon_names}, or \code{blast_result}
+must be supplied.
+
+When \code{blast_result} is used, missing \code{staxids} values are first
+recovered from \code{sseqid} through the NCBI \code{accession2taxid} table.
+If \code{col_path} is supplied, \code{resolved} is \code{TRUE} only when the
+NCBI species name matches a COL accepted name or synonym. The output also
+contains \code{resolved_taxon_id}, which is the accepted COL taxon ID. Thus,
+different NCBI TaxIDs resolving to the same accepted COL species receive the
+same lineage and \code{resolved_taxon_id} and do not create a false species
+conflict in \code{find_lca()}.
+
 The function constructs a recursive SQL query using a Common Table
 Expression (CTE) to follow taxonomic lineages upward from each query tax ID.
-Returned results include only user-defined ranks. When \code{tax_names} is used,
-the function also returns the matched tax IDs for each supplied name.
+Returned results include only user-defined ranks. When \code{taxon_names} is used,
+the function also returns the matched tax IDs for each supplied name. Tax ID
+input such as \code{" 9 606 "} is normalized to \code{9606}, and a name such as
+\code{"Homo   sapiens"} is queried as \code{"Homo sapiens"} while its original form is
+retained in \code{query_tax_name}.
+Common infraspecific NCBI ranks, including \code{subspecies},
+\code{varietas}, cultivar groups, strains, genotypes, and unranked
+subgroups, are returned in the \code{species} column using their complete
+scientific names. This is determined from lineage position rather than a
+fixed list of rank labels: whenever the queried node is below a species
+node, its own scientific name replaces the ancestral species name.
+
+If the database contains the \code{merged} table created by
+\code{build_ncbi_taxonomy_database()}, obsolete tax IDs are automatically redirected to
+their current NCBI tax IDs. The current ID is returned in
+\code{query_taxid}; set \code{keep_input_taxid = TRUE} to retain the
+original ID separately. If \code{name_aliases} is available, taxon-name
+queries also recognize NCBI synonyms while returning the current tax ID and
+current scientific name. If \code{species_equivalents} is available,
+species names qualified with \code{s.l.} or \code{sensu lato} are resolved
+to an unambiguous canonical binomial species. This makes sample-specific
+records such as \code{Gnetum hainanense s.l. Won 511} return the same species
+and tax ID as \code{Gnetum hainanense}, without collapsing named varieties,
+subspecies, or subgroups.
+
+Bracketed provisional genera are displayed without brackets only when NCBI
+supplies the corresponding unbracketed synonym for the same tax ID. For
+example, tax ID 2995247 is returned as
+\code{Polygonum chinense var. procumbens}; the \code{varietas} node is not
+redirected to its parent species.
 
 A maximum recursion depth (\code{max_depth}) is used to avoid infinite loops
-caused by malformed taxonomy entries.
+caused by malformed taxonomy entries. Elapsed time is reported when the
+function exits.
 }
 \section{Database Requirements}{
 
 The SQLite database must include tables structured identically to the
 official NCBI taxonomy dump (\code{nodes.dmp}, \code{names.dmp}) after being imported
 into SQLite. Required fields include parent tax IDs and rank annotations.
+A \code{merged} table is optional for databases created by older package
+versions, but is required to resolve obsolete tax IDs.
 }
 
 \examples{
 \dontrun{
-# Example: query by tax IDs
-get_taxonomy(
-  sql_path = "ncbi_taxonomy.sqlite",
-  tax_ids = c(9606, 3702)
+db <- "reference_databases/ncbi_taxonomy/taxonomy.sqlite"
+
+# Step 1: create the database once
+build_ncbi_taxonomy_database(
+  taxonomy = TRUE,
+  accession = TRUE,
+  taxdump_dir = "reference_databases/ncbi_taxonomy",
+  sql_path = db
 )
 
-# Example: query by scientific names
-get_taxonomy(
-  sql_path = "ncbi_taxonomy.sqlite",
-  tax_names = c("Homo sapiens", "Arabidopsis thaliana")
+# Step 2a: query taxonomy directly by taxid
+lineage_by_id <- get_taxonomy(
+  sql_path = db,
+  taxids = c(" 9606 ", "3702")
 )
+
+# Step 2b: query taxonomy directly by scientific name
+lineage_by_name <- get_taxonomy(
+  sql_path = db,
+  taxon_names = c("Homo   sapiens", "Arabidopsis thaliana")
+)
+
+# NCBI synonyms resolve to the current taxid and scientific name
+current_name <- get_taxonomy(
+  sql_path = db,
+  taxon_names = "Acer takesimense"
+)
+
+# Step 2c: accession -> taxid -> taxonomy
+accession_taxids <- get_taxid(
+  sql_path = db,
+  accessions = c("NC_045512.2", "NC_000001.11")
+)
+accession_lineages <- get_taxonomy(
+  sql_path = db,
+  taxids = accession_taxids$taxid
+)
+
+# Annotate blastn_cmd() output and optionally calibrate names with COL
+blast_taxonomy <- get_taxonomy(
+  sql_path = db,
+  blast_result = "analysis_results/blast_results.tsv",
+  col_path = "reference_databases/COL/catalogue_of_life.sqlite"
+)
+lca <- find_lca(blast_taxonomy)
 }
+
+}
+\seealso{
+\code{\link{build_ncbi_taxonomy_database}} for creating or selectively updating the
+required SQLite database, and \code{\link{get_taxid}} for converting
+accession identifiers to tax IDs before lineage lookup.
 }

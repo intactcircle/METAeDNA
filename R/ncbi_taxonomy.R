@@ -168,7 +168,7 @@ build_database_index <- function(sql_path,
 
 #' Build an NCBI taxonomy and accession database
 #'
-#' This function builds an SQLite database from NCBI taxonomy resources. It can
+#' \code{build_ncbi_taxonomy_database()} builds an SQLite database from NCBI taxonomy resources. It can
 #' optionally download and parse the NCBI taxdump archive (nodes, names, and
 #' merged tax IDs) and
 #' the large \code{accession2taxid} mapping files, then write them into an
@@ -183,7 +183,7 @@ build_database_index <- function(sql_path,
 #'   \code{merged}, \code{name_aliases}, and \code{species_equivalents} in the
 #'   SQLite database.
 #'   Alternatively, the files can be downloaded directly from NCBI at: \code{https://ftp.ncbi.nlm.nih.gov/pub/taxonomy/}, and put this file to
-#'   your working space (specified in \code{taxdump_dir}).
+#'   the directory specified in \code{taxdump_dir}.
 #'
 #' @param accession (logical) if \code{TRUE}, create an \code{accession2taxid}
 #'   table using the \code{nucl_gb.accession2taxid.gz} file provided by NCBI.
@@ -336,7 +336,7 @@ build_database_index <- function(sql_path,
 #' )
 #' accession_lineages <- get_taxonomy(
 #'   sql_path = db,
-#'   tax_ids = accession_taxids$taxid
+#'   taxids = accession_taxids$taxid
 #' )
 #'
 #' # Refresh taxonomy and redirects without rebuilding accession2taxid
@@ -890,9 +890,9 @@ build_ncbi_taxonomy_database <- function(taxonomy = TRUE, accession = FALSE, inc
 }
 
 # Query and retrieve taxonomic information-------------------------------------
-#' Retrieve Taxonomic Lineages from a Local NCBI Taxonomy SQLite Database
+#' Retrieve NCBI taxonomy and annotate BLAST results
 #'
-#' This function queries a local SQLite database containing NCBI taxonomy
+#' \code{get_taxonomy()} queries a local SQLite database containing NCBI taxonomy
 #' tables (`nodes` and `names`) and returns taxonomic lineages for a set of
 #' tax IDs or taxon names. The function performs a recursive SQL query to
 #' traverse parent nodes until reaching the root, then extracts and reshapes
@@ -900,27 +900,54 @@ build_ncbi_taxonomy_database <- function(taxonomy = TRUE, accession = FALSE, inc
 #'
 #' @param sql_path (character) File path to the SQLite database containing
 #'   NCBI taxonomy tables (`nodes`, `names`).
-#' @param tax_ids (integer vector) NCBI taxonomy IDs to query.
-#'   Cannot be used together with `tax_names`.
-#' @param tax_names (character vector). Scientific names to query.
-#'   The function will internally retrieve the corresponding tax IDs.
+#' @param taxids NCBI taxonomy IDs to query. Spaces are removed before values
+#'   are converted to numeric tax IDs. Values that are not valid numbers are
+#'   converted to `NA` with a warning. Cannot be used together with
+#'   `taxon_names`.
+#' @param taxon_names (character vector). Scientific names to query.
+#'   Repeated whitespace is normalized with `stringr::str_squish()` before the
+#'   corresponding tax IDs are retrieved. The returned `query_tax_name` column
+#'   retains the original input values.
+#' @param blast_result A data frame or the tabular output file written by
+#'   \code{blastn_cmd()}. The BLAST rows are expanded by \code{staxids}, joined
+#'   to NCBI taxonomy, and returned with the original BLAST columns so the
+#'   result can be passed directly to \code{find_lca()}.
+#' @param col_path Optional Catalogue of Life SQLite database created by
+#'   \code{build_col_taxonomy_database()}. NCBI species names are matched
+#'   against accepted names and synonyms in COL. Successful matches replace
+#'   the NCBI lineage with the COL accepted lineage.
 #' @param dereplicate (logical) If `TRUE`, duplicated query entries are removed
-#'   after lineage construction. Default is `TRUE`.
+#'   after lineage construction. Default is `FALSE`. This argument applies to
+#'   direct TaxID or name queries; BLAST rows are retained for LCA analysis.
 #' @param rank_name (character vector) Ordered taxonomic ranks to extract.
 #'   Must be given from highest to lowest rank. The default is
 #'   `c("kingdom","phylum","class","order","family","genus","species")`.
-#' @param show_elapsed (logical) If `TRUE`, elapsed time is printed using
-#'   the internal `show_time()` function. Default is `TRUE`.
 #' @param keep_input_taxid (logical) if \code{TRUE}, include an
 #'   \code{input_taxid} column containing the originally requested IDs.
 #'   \code{query_taxid} always contains the current ID after applying
 #'   \code{merged.dmp} redirects. Default is \code{FALSE}.
+#' @param quiet Suppress status and elapsed-time messages. Default is `FALSE`.
 #'
 #' @details
+#' Exactly one of \code{taxids}, \code{taxon_names}, or \code{blast_result}
+#' must be supplied.
+#'
+#' When \code{blast_result} is used, missing \code{staxids} values are first
+#' recovered from \code{sseqid} through the NCBI \code{accession2taxid} table.
+#' If \code{col_path} is supplied, \code{resolved} is \code{TRUE} only when the
+#' NCBI species name matches a COL accepted name or synonym. The output also
+#' contains \code{resolved_taxon_id}, which is the accepted COL taxon ID. Thus,
+#' different NCBI TaxIDs resolving to the same accepted COL species receive the
+#' same lineage and \code{resolved_taxon_id} and do not create a false species
+#' conflict in \code{find_lca()}.
+#'
 #' The function constructs a recursive SQL query using a Common Table
 #' Expression (CTE) to follow taxonomic lineages upward from each query tax ID.
-#' Returned results include only user-defined ranks. When `tax_names` is used,
-#' the function also returns the matched tax IDs for each supplied name.
+#' Returned results include only user-defined ranks. When `taxon_names` is used,
+#' the function also returns the matched tax IDs for each supplied name. Tax ID
+#' input such as `" 9 606 "` is normalized to `9606`, and a name such as
+#' `"Homo   sapiens"` is queried as `"Homo sapiens"` while its original form is
+#' retained in `query_tax_name`.
 #' Common infraspecific NCBI ranks, including \code{subspecies},
 #' \code{varietas}, cultivar groups, strains, genotypes, and unranked
 #' subgroups, are returned in the \code{species} column using their complete
@@ -948,7 +975,8 @@ build_ncbi_taxonomy_database <- function(taxonomy = TRUE, accession = FALSE, inc
 #' redirected to its parent species.
 #'
 #' A maximum recursion depth (`max_depth`) is used to avoid infinite loops
-#' caused by malformed taxonomy entries.
+#' caused by malformed taxonomy entries. Elapsed time is reported when the
+#' function exits.
 #'
 #' @return
 #' A data frame containing:
@@ -962,8 +990,13 @@ build_ncbi_taxonomy_database <- function(taxonomy = TRUE, accession = FALSE, inc
 #'     One column per rank specified in \code{rank_name}.
 #'   }
 #'   \item{Matched name information}{
-#'     When \code{tax_names} is used, additional columns reporting the original
+#'     When \code{taxon_names} is used, additional columns reporting the original
 #'     taxon names and the matched tax IDs are included.
+#'   }
+#'   \item{BLAST annotation}{
+#'     When \code{blast_result} is used, all BLAST columns, NCBI lineage
+#'     columns, \code{ncbi_species}, logical \code{resolved}, and optional COL
+#'     identifiers are returned.
 #'   }
 #' }
 #' Missing ranks are filled with \code{NA}.
@@ -990,19 +1023,19 @@ build_ncbi_taxonomy_database <- function(taxonomy = TRUE, accession = FALSE, inc
 #' # Step 2a: query taxonomy directly by taxid
 #' lineage_by_id <- get_taxonomy(
 #'   sql_path = db,
-#'   tax_ids = c(9606, 3702)
+#'   taxids = c(" 9606 ", "3702")
 #' )
 #'
 #' # Step 2b: query taxonomy directly by scientific name
 #' lineage_by_name <- get_taxonomy(
 #'   sql_path = db,
-#'   tax_names = c("Homo sapiens", "Arabidopsis thaliana")
+#'   taxon_names = c("Homo   sapiens", "Arabidopsis thaliana")
 #' )
 #'
 #' # NCBI synonyms resolve to the current taxid and scientific name
 #' current_name <- get_taxonomy(
 #'   sql_path = db,
-#'   tax_names = "Acer takesimense"
+#'   taxon_names = "Acer takesimense"
 #' )
 #'
 #' # Step 2c: accession -> taxid -> taxonomy
@@ -1012,8 +1045,16 @@ build_ncbi_taxonomy_database <- function(taxonomy = TRUE, accession = FALSE, inc
 #' )
 #' accession_lineages <- get_taxonomy(
 #'   sql_path = db,
-#'   tax_ids = accession_taxids$taxid
+#'   taxids = accession_taxids$taxid
 #' )
+#'
+#' # Annotate blastn_cmd() output and optionally calibrate names with COL
+#' blast_taxonomy <- get_taxonomy(
+#'   sql_path = db,
+#'   blast_result = "analysis_results/blast_results.tsv",
+#'   col_path = "reference_databases/COL/catalogue_of_life.sqlite"
+#' )
+#' lca <- find_lca(blast_taxonomy)
 #' }
 #'
 #' @seealso
@@ -1025,13 +1066,151 @@ build_ncbi_taxonomy_database <- function(taxonomy = TRUE, accession = FALSE, inc
 #' @importFrom DBI dbConnect dbExecute dbDisconnect dbWriteTable dbQuoteLiteral dbGetQuery
 #' @importFrom dplyr left_join bind_cols filter rename join_by select  mutate arrange
 #' @importFrom tidyr pivot_wider
-#' @return query table
 #' @export
-get_taxonomy <- function(sql_path, tax_ids = NULL, tax_names = NULL, dereplicate = TRUE, rank_name = c("kingdom", "phylum","class","order","family", "genus" ,"species" ), show_elapsed = T, keep_input_taxid = FALSE) {
+get_taxonomy <- function(sql_path, taxids = NULL, taxon_names = NULL,
+                         blast_result = NULL, col_path = NULL,
+                         dereplicate = FALSE,
+                         rank_name = c("kingdom", "phylum", "class", "order",
+                                       "family", "genus", "species"),
+                         keep_input_taxid = FALSE, quiet = FALSE) {
   start_time <- Sys.time()
-  show_time("Starting taxonomic query...")
-  on.exit(show_time("Done."), add = TRUE)
-  if(show_elapsed) on.exit(show_time(secs = as.numeric(Sys.time() - start_time, units = "secs"), mode = 1), add = TRUE)
+  if (!quiet) {
+    show_time("Starting taxonomic query...")
+    on.exit(show_time("Done."), add = TRUE)
+    on.exit(show_time(secs = as.numeric(Sys.time() - start_time, units = "secs"), mode = 1), add = TRUE)
+  }
+
+  supplied <- c(!is.null(taxids), !is.null(taxon_names), !is.null(blast_result))
+  if (sum(supplied) != 1L) {
+    stop("Provide exactly one of taxids, taxon_names, or blast_result.", call. = FALSE)
+  }
+
+  if (!is.null(blast_result)) {
+    blast_columns <- c(
+      "qseqid", "sseqid", "pident", "length", "mismatch", "gapopen",
+      "qstart", "qend", "sstart", "send", "evalue", "bitscore",
+      "qcovs", "staxids"
+    )
+    if (is.character(blast_result) && length(blast_result) == 1L) {
+      if (!file.exists(blast_result)) {
+        stop("BLAST result file not found: ", blast_result, call. = FALSE)
+      }
+      blast_result <- utils::read.delim(
+        blast_result, header = FALSE, col.names = blast_columns, quote = "",
+        comment.char = "", stringsAsFactors = FALSE, check.names = FALSE
+      )
+    }
+    if (!is.data.frame(blast_result)) {
+      stop("blast_result must be a BLAST result file or a data frame.", call. = FALSE)
+    }
+    missing_columns <- setdiff(blast_columns, names(blast_result))
+    if (length(missing_columns)) {
+      stop(
+        "BLAST results are missing: ", paste(missing_columns, collapse = ", "),
+        call. = FALSE
+      )
+    }
+
+    hits <- blast_result
+    missing_taxid <- is.na(hits$staxids) |
+      trimws(as.character(hits$staxids)) %in% c("", "0")
+
+    if (any(missing_taxid)) {
+      accessions <- trimws(as.character(hits$sseqid))
+      accessions <- sub("[[:space:]].*$", "", accessions)
+      accessions <- sub(
+        "^gi[|][^|]+[|](?:gb|emb|dbj|ref)[|]([^|]+)[|].*$",
+        "\\1", accessions, perl = TRUE
+      )
+      accessions <- sub(
+        "^(?:gb|emb|dbj|ref|lcl)[|]([^|]+)[|]?.*$",
+        "\\1", accessions, perl = TRUE
+      )
+      accession_taxids <- get_taxid(
+        sql_path = sql_path,
+        accessions = unique(accessions[missing_taxid])
+      )
+      matched_taxids <- accession_taxids$taxid[
+        match(accessions[missing_taxid], accession_taxids$accession)
+      ]
+      hits$staxids[missing_taxid] <- matched_taxids
+    }
+
+    taxid_values <- strsplit(as.character(hits$staxids), "[;,]")
+    row_index <- rep(seq_len(nrow(hits)), lengths(taxid_values))
+    expanded_taxids <- suppressWarnings(
+      as.integer(trimws(unlist(taxid_values)))
+    )
+    hits <- hits[row_index, , drop = FALSE]
+    hits$staxids <- expanded_taxids
+    valid_taxids <- unique(expanded_taxids[!is.na(expanded_taxids)])
+
+    for (rank in rank_name) hits[[rank]] <- NA_character_
+    if (length(valid_taxids)) {
+      taxonomy <- get_taxonomy(
+        sql_path = sql_path,
+        taxids = valid_taxids,
+        rank_name = rank_name,
+        keep_input_taxid = TRUE,
+        quiet = TRUE
+      )
+      taxonomy_row <- match(hits$staxids, taxonomy$input_taxid)
+      for (rank in rank_name) hits[[rank]] <- taxonomy[[rank]][taxonomy_row]
+    }
+
+    hits$ncbi_species <- hits$species
+    hits$resolved <- FALSE
+    hits$resolved_taxon_id <- NA_character_
+    hits$col_taxon_id <- NA_character_
+    hits$col_accepted_name <- NA_character_
+
+    if (!is.null(col_path)) {
+      species_names <- unique(hits$ncbi_species[
+        !is.na(hits$ncbi_species) & nzchar(hits$ncbi_species)
+      ])
+      col_matches <- if (length(species_names)) {
+        col_match_species(
+          species_names,
+          db_path = col_path,
+          fuzzy = FALSE,
+          return_all = FALSE,
+          parallel = FALSE
+        )
+      } else {
+        data.frame()
+      }
+      if (nrow(col_matches)) {
+        col_row <- match(hits$ncbi_species, col_matches$input_species)
+        matched <- !is.na(col_row)
+        hits$resolved[matched] <- TRUE
+        hits$col_taxon_id[matched] <- as.character(col_matches$taxon_id[col_row[matched]])
+        accepted_id <- if ("accepted_taxon_id" %in% names(col_matches)) {
+          as.character(col_matches$accepted_taxon_id)
+        } else {
+          as.character(col_matches$taxon_id)
+        }
+        accepted_name <- if ("accepted_name" %in% names(col_matches)) {
+          as.character(col_matches$accepted_name)
+        } else {
+          as.character(col_matches$species)
+        }
+        hits$resolved_taxon_id[matched] <- accepted_id[col_row[matched]]
+        hits$col_accepted_name[matched] <- accepted_name[col_row[matched]]
+        for (rank in rank_name) {
+          replacement <- col_matches[[rank]][col_row[matched]]
+          use <- matched
+          use[matched] <- !is.na(replacement) & nzchar(replacement)
+          hits[[rank]][use] <- replacement[
+            !is.na(replacement) & nzchar(replacement)
+          ]
+        }
+      }
+    }
+
+    rownames(hits) <- NULL
+    return(tibble::as_tibble(hits))
+  }
+
   # setting max_depth to search to avoid endless loop.
   max_depth = 100
   #
@@ -1040,19 +1219,32 @@ get_taxonomy <- function(sql_path, tax_ids = NULL, tax_names = NULL, dereplicate
   on.exit(dbDisconnect(con), add = TRUE)
   #
   skip_id_O <- F
-  # Avoid inputting both parameters at the same time.
-  stopifnot(xor(is.null(tax_ids), is.null(tax_names)))
   # raw order of ids
 
-  if(!is.null(tax_ids)){
+  if(!is.null(taxids)){
+    taxid_text <- gsub("\\s+", "", as.character(taxids), perl = TRUE)
+    taxid_numeric <- suppressWarnings(as.numeric(taxid_text))
+    invalid_taxid <- !is.na(taxids) &
+      (!grepl("^[0-9]+$", taxid_text) | !is.finite(taxid_numeric))
+    if (any(invalid_taxid)) {
+      warning(
+        sum(invalid_taxid),
+        " taxid value(s) are not numeric and were converted to NA.",
+        call. = FALSE
+      )
+      taxid_numeric[invalid_taxid] <- NA_real_
+    }
+    taxids <- taxid_numeric
     id_raw_seq <- data.frame(
-      input_taxid = tax_ids,
-      query_taxid = .resolve_ncbi_taxids(con, tax_ids)
+      input_taxid = taxids,
+      query_taxid = .resolve_ncbi_taxids(con, taxids)
     )
-    tax_ids <- unique(id_raw_seq$query_taxid)
+    taxids <- unique(id_raw_seq$query_taxid)
   }
   # raw name and get their tax id
-  if (!is.null(tax_names)) {
+  if (!is.null(taxon_names)) {
+    original_tax_names <- as.character(taxon_names)
+    query_tax_names <- stringr::str_squish(original_tax_names)
     skip_id_O <- T
     name_table <- if ("name_aliases" %in% DBI::dbListTables(con)) {
       "name_aliases"
@@ -1063,23 +1255,28 @@ get_taxonomy <- function(sql_path, tax_ids = NULL, tax_names = NULL, dereplicate
       con,
       paste0(
         "SELECT DISTINCT tax_id, name FROM ", name_table, " WHERE name IN (",
-        paste(DBI::dbQuoteLiteral(con, tax_names), collapse = ","),
+        paste(DBI::dbQuoteLiteral(con, query_tax_names), collapse = ","),
         ")"
       )
     )
     name_raw$tax_id <- .resolve_ncbi_taxids(con, name_raw$tax_id)
     name_raw <- distinct(name_raw, tax_id, name, .keep_all = TRUE)
-    tax_ids <- name_raw$tax_id
-    name_raw <- data.frame(query_tax_name = tax_names) %>% left_join(name_raw, by = join_by(query_tax_name == name))
+    taxids <- name_raw$tax_id
+    name_raw <- data.frame(
+      query_tax_name = original_tax_names,
+      normalized_tax_name = query_tax_names
+    ) %>%
+      left_join(name_raw, by = c("normalized_tax_name" = "name")) %>%
+      select(-all_of("normalized_tax_name"))
 
-    if (length(tax_ids) == 0) {
-      n <- length(tax_names)
+    if (length(taxids) == 0) {
+      n <- length(original_tax_names)
 
       tax_tbl <- as.data.frame(
         matrix(NA, nrow = n, ncol = length(rank_name),
                dimnames = list(NULL, rank_name))) %>%
         bind_cols(
-          query_tax_name = tax_names,
+          query_tax_name = original_tax_names,
           query_taxid = rep(NA_integer_, n),
           .
         )
@@ -1088,7 +1285,7 @@ get_taxonomy <- function(sql_path, tax_ids = NULL, tax_names = NULL, dereplicate
   }
 
   # make a query ---------
-  id_sql <- paste(DBI::dbQuoteLiteral(con, tax_ids), collapse = ",")
+  id_sql <- paste(DBI::dbQuoteLiteral(con, taxids), collapse = ",")
 
 
   q <- paste(
@@ -1140,7 +1337,7 @@ get_taxonomy <- function(sql_path, tax_ids = NULL, tax_names = NULL, dereplicate
   query_res[missing_ranks] <- NA_character_
   query_res <- query_res[, c("query_taxid", rank_name), drop = FALSE]
 
-  if(!is.null(tax_names)){
+  if(!is.null(taxon_names)){
     final_query_res <- left_join(name_raw, query_res, by = join_by(tax_id == query_taxid)) %>%
       dplyr::rename(query_taxid = tax_id)
   }
@@ -1180,9 +1377,6 @@ get_taxonomy <- function(sql_path, tax_ids = NULL, tax_names = NULL, dereplicate
 #' @param accessions Character vector of NCBI accessions to be queried.
 #'   Versioned identifiers (for example, \code{"AB123456.1"}) and unversioned
 #'   identifiers (for example, \code{"AB123456"}) may be mixed in one call.
-#' @param show_elapsed Logical. Whether to display elapsed time information
-#'   using \code{show_time()}. Default is \code{TRUE}.
-#'
 #' @return A \code{data.frame} with two columns:
 #' \describe{
 #'   \item{accession}{Input accession identifiers, in the same order as provided.}
@@ -1199,7 +1393,7 @@ get_taxonomy <- function(sql_path, tax_ids = NULL, tax_names = NULL, dereplicate
 #' are automatically replaced by their current NCBI tax IDs before return.
 #' SQL queries are constructed internally using \code{IN (...)} clauses;
 #' therefore, extremely large accession vectors may be limited by SQLite
-#' query length constraints.
+#' query length constraints. Elapsed time is reported when the function exits.
 #'
 #' @examples
 #' \dontrun{
@@ -1222,7 +1416,7 @@ get_taxonomy <- function(sql_path, tax_ids = NULL, tax_names = NULL, dereplicate
 #' # Step 3: retrieve the corresponding taxonomic lineages
 #' accession_lineages <- get_taxonomy(
 #'   sql_path = db,
-#'   tax_ids = accession_taxids$taxid
+#'   taxids = accession_taxids$taxid
 #' )
 #' }
 #'
@@ -1237,12 +1431,12 @@ get_taxonomy <- function(sql_path, tax_ids = NULL, tax_names = NULL, dereplicate
 #' @importFrom stringr str_detect
 #'
 #' @export
-get_taxid <- function(sql_path, accessions, show_elapsed = T){
+get_taxid <- function(sql_path, accessions){
   show_time("Starting taxid query...")
   start_time <- Sys.time()
   con <- dbConnect(SQLite(),sql_path)
 
-  if(show_elapsed) on.exit(show_time(secs = as.numeric(Sys.time() - start_time, units = "secs"), mode = 1))
+  on.exit(show_time(secs = as.numeric(Sys.time() - start_time, units = "secs"), mode = 1))
   on.exit(dbDisconnect(con), add = T)
   # test <- tbl(con,  "accession2taxid")  %>% select(accession.version, taxid) %>%  filter(accession.version %in% accessions) %>% show_query()
 
@@ -1301,11 +1495,11 @@ get_taxid <- function(sql_path, accessions, show_elapsed = T){
 # Unzip the blast database --------------------------------------
 #' Decompress Downloaded NCBI BLAST Database Fragments
 #'
-#' This function extracts `.tar.gz` BLAST database fragments previously
+#' \code{prepare_blast_database()} extracts `.tar.gz` BLAST database fragments previously
 #' downloaded from the NCBI BLAST FTP server. Each compressed archive is
 #' decompressed into a specified directory, producing the files required for
 #' local BLAST database use. Parallel processing is supported via the
-#' \pkg{future} and \pkg{foreach} frameworks.
+#' \pkg{future} and \pkg{future.apply} frameworks.
 #'
 #' @param file_path (character) Directory containing downloaded BLAST
 #'   `.tar.gz` fragment files. Must be an absolute path to avoid
@@ -1314,24 +1508,22 @@ get_taxid <- function(sql_path, accessions, show_elapsed = T){
 #' @param database_path (character) Directory where decompressed BLAST
 #'   database files will be written. The directory must be writable.
 #'
-#' @param threads Integer. Number of parallel workers used for decompression.
+#' @param n_threads Integer. Number of parallel workers used for decompression.
 #'   If `NULL`, decompression is performed sequentially. Default is `NULL`.
-#'
-#' @param show_elapsed Logical. If `TRUE`, the total elapsed time is reported
-#'   using the internal \code{show_time()} function. Default is `TRUE`.
 #'
 #' @details
 #' The function scans \code{file_path} for all files matching the pattern
 #' \code{"tar.gz"} and extracts each archive using \code{untar()}.
-#' When \code{threads} is specified, parallel processing is performed using
-#' \pkg{future} and \pkg{foreach} (with \code{\%dofuture\%}).
+#' When \code{n_threads} is specified, parallel processing is performed using
+#' \pkg{future} and \pkg{future.apply}.
 #'
 #' Each `.tar.gz` fragment typically corresponds to a portion of a BLAST
 #' database (e.g., `nt.00.tar.gz`, `nt.01.tar.gz`). After extraction, the
 #' resulting files (e.g., `.nhr`, `.nin`, `.nsq`) form a complete BLAST
-#' database when all fragments are included.
+#' database when all fragments are included. Elapsed time is reported when the
+#' function exits.
 #'
-#' Future plans are automatically restored to sequential mode upon exit.
+#' The previous future plan is restored when the function exits.
 #'
 #' @return
 #' Invisibly returns \code{NULL}. Decompressed BLAST database files are
@@ -1352,183 +1544,42 @@ get_taxid <- function(sql_path, accessions, show_elapsed = T){
 #' prepare_blast_database(
 #'   file_path = "reference_databases/blast_downloads",
 #'   database_path = "reference_databases/blast_database",
-#'   threads = 8
+#'   n_threads = 8
 #' )
 #' }
 #'
-#' @import foreach
 #' @importFrom utils untar
 #' @importFrom future plan multisession sequential
-#' @importFrom doFuture `%dofuture%`
+#' @importFrom future.apply future_lapply
 #' @export
-prepare_blast_database <- function(file_path = ".", database_path = ".", threads = NULL, show_elapsed = T){
+prepare_blast_database <- function(file_path = ".", database_path = ".", n_threads = NULL){
+  .check_path(file_path, "file_path")
+  .check_path(database_path, "database_path")
+  if (!dir.exists(file_path)) stop("Archive directory does not exist.", call. = FALSE)
+  if (!is.null(n_threads)) .check_number(n_threads, "n_threads", 1, .Machine$integer.max, TRUE)
+  if (!dir.exists(database_path) && !dir.create(database_path, recursive = TRUE)) stop("Cannot create database_path.", call. = FALSE)
   start_time <- Sys.time()
-  if(show_elapsed) on.exit(show_time(secs = as.numeric(Sys.time() - start_time, units = "secs"), mode = 1), add = TRUE)
+  on.exit(show_time(secs = as.numeric(Sys.time() - start_time, units = "secs"), mode = 1), add = TRUE)
   show_time("Starting to decompress the files...")
   show_time("Unzipping data...")
-  on.exit(plan(sequential), add = T)
-  if (is.null(threads)) {
-    plan(sequential)
+  old_plan <- future::plan()
+  on.exit(future::plan(old_plan), add = TRUE)
+  if (is.null(n_threads)) {
+    future::plan(future::sequential)
   } else {
-    plan(multisession, workers = threads)
+    future::plan(future::multisession, workers = n_threads)
   }
 
-  file_l <- list.files(file_path, full.names = TRUE, pattern = "tar.gz$")
-
-  # handlers(global = TRUE)
-  # handlers("progress")
-
-  #with_progress({
-
-   # p <- progressor(along = 1:length(file_l))
-
-    foreach(fl = seq_along(file_l)) %dofuture% {
-
-      untar(
-        tarfile = file_l[fl],
-        exdir = database_path
-      )
-
-    #  p()
-    }
-  #})
-
+  file_l <- list.files(file_path, full.names = TRUE, pattern = "\\.tar\\.gz$")
+  if (!length(file_l)) stop("No .tar.gz archives were found.", call. = FALSE)
+  status <- future.apply::future_lapply(
+    file_l,
+    function(file) utils::untar(file, exdir = database_path),
+    future.seed = FALSE
+  )
+  if (any(vapply(status, function(x) !identical(as.integer(x), 0L), logical(1)))) {
+    stop("Some BLAST archives could not be extracted; check the log and disk space.", call. = FALSE)
+  }
 
   show_time("Done.")
-}
-
-
-
-## LCA function ---------------------------------
-#' Infer Last Common Ancestor (LCA) taxonomy from BLAST tabular results
-#'
-#' This function infers a consensus taxonomic assignment for each query
-#' sequence based on BLAST tabular output. For each query, only the best hits
-#' (defined by maximum identity, maximum query coverage, and minimum e-value)
-#' are retained. Taxonomic ranks are then evaluated independently, and a rank
-#' is assigned only if all retained hits share the same value at that level.
-#' The deepest rank with a non-ambiguous consensus is reported as the inferred
-#' LCA rank.
-#'
-#' @param df (data.frame or tibble) BLAST tabular results containing query
-#'   identifiers, alignment statistics, and taxonomic annotations. The table
-#'   must include at least columns for query ID, percent identity, query
-#'   coverage, e-value, taxonomy ranks, taxonomic identifiers, and subject
-#'   accessions.
-#'
-#' @param seqs_ID (character) column name in \code{df} identifying query
-#'   sequences (e.g., \code{"qseqid"}).
-#'
-#' @param tax_levels (character vector) ordered taxonomic ranks used for LCA
-#'   inference, from higher to lower rank (e.g.,
-#'   \code{c("kingdom","phylum","class",
-#'   "order","family","genus","species")}).
-#'
-#' @param taxid_colum (character) column name containing NCBI taxonomic
-#'   identifiers associated with BLAST hits (e.g., \code{"staxids"}).
-#'
-#' @param accession_colum (character) column name containing subject accession
-#'   identifiers from BLAST hits (e.g., \code{"sseqid"}).
-#'
-#' @param identity_colum (character) column name for BLAST percent identity
-#'   values (e.g., \code{"pident"}).
-#'
-#' @param coverage_colum (character) column name for BLAST query coverage
-#'   values (e.g., \code{"qcovs"}).
-#'
-#' @details
-#' The function proceeds as follows:
-#' \itemize{
-#'   \item Groups BLAST hits by query sequence.
-#'   \item Retains only hits with:
-#'     \itemize{
-#'       \item maximum percent identity,
-#'       \item maximum query coverage,
-#'       \item minimum e-value.
-#'     }
-#'   \item For each taxonomic rank, assigns a value only if all retained hits
-#'         share the same annotation at that rank; otherwise assigns \code{NA}.
-#'   \item Determines the deepest (most specific) rank with a non-\code{NA}
-#'         consensus as the inferred LCA rank.
-#'   \item Concatenates taxonomic IDs and accession IDs across retained hits
-#'         for traceability.
-#'   \item Generates a \code{scientific_name} column, appending \code{"sp."}
-#'         identifiers when the consensus rank is above species level.
-#' }
-#'
-#' This approach corresponds to a *rank-wise consensus LCA* based on best BLAST
-#' hits, rather than a phylogenetic tree-based LCA.
-#'
-#' @return
-#' A tibble with one row per query sequence, including:
-#' \itemize{
-#'   \item consensus taxonomic annotations at each rank,
-#'   \item inferred LCA rank (\code{rank}),
-#'   \item constructed scientific name (\code{scientific_name}),
-#'   \item concatenated taxonomic IDs (\code{taxid}),
-#'   \item concatenated accession identifiers (\code{accession}),
-#'   \item representative identity and coverage values.
-#' }
-#'
-#' @importFrom dplyr coalesce sym syms summarise filter group_by select mutate
-#' @importFrom stats na.omit
-#'
-#' @examples
-#' blast_hits <- data.frame(
-#'   qseqid = c("query_1", "query_1", "query_2"),
-#'   sseqid = c("AB000001.1", "AB000002.1", "AB000003.1"),
-#'   staxids = c(9606, 63221, 10090),
-#'   pident = c(99.5, 99.5, 100),
-#'   qcovs = c(100, 100, 100),
-#'   evalue = c(1e-40, 1e-40, 1e-50),
-#'   kingdom = c("Eukaryota", "Eukaryota", "Eukaryota"),
-#'   phylum = c("Chordata", "Chordata", "Chordata"),
-#'   class = c("Mammalia", "Mammalia", "Mammalia"),
-#'   order = c("Primates", "Primates", "Rodentia"),
-#'   family = c("Hominidae", "Hominidae", "Muridae"),
-#'   genus = c("Homo", "Homo", "Mus"),
-#'   species = c("Homo sapiens", "Homo sp.", "Mus musculus")
-#' )
-#'
-#' lca_table <- find_lca(
-#'   blast_hits,
-#'   tax_levels = c("kingdom", "phylum", "class", "order", "family",
-#'                  "genus", "species")
-#' )
-#' @section Citations: Wang, Y., Korneliussen, T. S., Holman, L. E., Manica, A., & Pedersen, M. W. (2022). ngsLCA - A toolkit for fast and flexible lowest common ancestor inference and taxonomic profiling of metagenomic data. Methods in Ecology and Evolution, 13, 2699-2708. \url{https://doi.org/10.1111/2041-210X.14006}
-#' @export
-find_lca <- function(df, seqs_ID = "qseqid", tax_levels = c("kingdom", "phylum","class",
-                                                            "order","family", "genus" ,"species" ),
-                     taxid_colum = "staxids", accession_colum = "sseqid",
-                     identity_colum = "pident", coverage_colum = "qcovs" ) {
-
-  get_consensus <- function(x) {
-    vals <- unique(na.omit(x))
-    if (length(vals) == 1) vals else NA_character_
-  }
-
-  lca_raw <- df %>%
-    group_by(!!sym(seqs_ID)) %>%
-    filter(pident ==max(pident), evalue == min(evalue), qcovs == max(qcovs )) %>%
-    summarise(
-      across(all_of(tax_levels), get_consensus),
-      taxid = paste(!!sym(taxid_colum), collapse = ";"),
-      accession = paste(!!sym(accession_colum), collapse = ";"),
-      coverage = (!!sym(coverage_colum) %>% unique)[1],
-      identity = (!!sym(identity_colum) %>% unique)[1],
-      .groups = "drop"
-    )
-
-    t_rank <- lca_raw %>% select(all_of(rev(tax_levels))) %>% apply(1, function(x,tax_levels){rev(tax_levels)[which(!(x %>% is.na))[1]]},tax_levels = tax_levels)
-    summ_df <- lca_raw %>%
-      mutate(rank = t_rank) %>%
-      group_by(across(all_of(tax_levels))) %>%
-      mutate(scientific_name = coalesce(!!! syms(rev(tax_levels))),
-             scientific_name = case_when(
-               rank != tax_levels[length(tax_levels)] ~ paste(scientific_name, "sp.", dplyr::row_number()),
-               .default = scientific_name
-             ) )
-
-  summ_df %>% return()
-
 }

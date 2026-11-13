@@ -1,5 +1,5 @@
 utils::globalVariables(c(
-  ".",
+  ".", ".data", "method", "richness", "read",
   "ID", "SEQ", "SEQ_ID",
   "blank_sample", "blank_type", "category", "centoid_ID",
   "canonical_name", "canonical_tax_id", "comments", "count", "depth",

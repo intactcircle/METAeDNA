@@ -14,7 +14,8 @@ such as \code{"blastn"}, \code{"blastp"}, \code{"makeblastdb"}, or
 \item{args}{(character vector or NULL) additional command-line arguments
 passed directly to BLAST+. Each element is treated as a separate argument.
 For example:
-\code{c("-query", "input.fasta", "-db", "nt", "-out", "result.txt")}.}
+\code{c("-query", "queries.fasta",
+"-db", "nt", "-out", "analysis_results/blast_results.tsv")}.}
 
 \item{blast_exe_path}{(character or NULL) optional directory or full path
 where BLAST+ executables are located. If \code{NULL}, the function searches
@@ -25,11 +26,9 @@ Invisibly returns the exit status of the BLAST process (integer). A value of
 \code{0} indicates successful execution.
 }
 \description{
-This function wraps the execution of NCBI BLAST+ command-line tools
-(e.g. \code{blastn}, \code{blastp}, \code{blastx}, \code{tblastn},
-\code{makeblastdb}). It automatically detects the BLAST executable,
-constructs a command, prints the resolved executable location and full
-command string, and executes the command using \code{system2()}.
+\code{blast_cmd()} runs an NCBI BLAST+ executable with the supplied arguments
+using \code{system2()}. The executable path and command are printed before
+execution.
 }
 \details{
 The function:
@@ -45,22 +44,9 @@ automated pipelines.
 }
 \examples{
 \dontrun{
-# Example: run BLASTN alignment
-blast_cmd(
-  base_cmd = "blastn",
-  args = c("-query", "seqs.fasta",
-           "-db", "nt",
-           "-evalue", "1e-10",
-           "-outfmt", "6",
-           "-out", "blast_output.tsv")
-)
-
-# Example: specify BLAST+ installation directory
-blast_cmd(
-  base_cmd = "makeblastdb",
-  args = c("-in", "ref.fasta", "-dbtype", "nucl"),
-  blast_exe_path = "/usr/local/ncbi/blast/bin"
-)
-}
-
+blast_cmd(base_cmd = "blastn", args = "-version")
+# reference.fasta contains the chosen reference sequences.
+blast_cmd("makeblastdb", c("-in", shQuote("reference.fasta"),
+                           "-dbtype", "nucl", "-out", shQuote("reference")))
+}#'
 }

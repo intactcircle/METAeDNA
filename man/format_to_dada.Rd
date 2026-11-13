@@ -4,14 +4,14 @@
 \alias{format_to_dada}
 \title{Format GenBank FASTA records to the DADA2 reference format}
 \usage{
-format_to_dada(input_fasta_file, output_fasta_file, sql_path, show_elapsed = T)
+format_to_dada(fasta_file, output_fasta, sql_path)
 }
 \arguments{
-\item{input_fasta_file}{(character) path to the input FASTA file. The file
+\item{fasta_file}{(character) path to the input FASTA file. The file
 should contain GenBank-style headers from which accession numbers can be
 extracted.}
 
-\item{output_fasta_file}{(character) path to the output FASTA file written
+\item{output_fasta}{(character) path to the output FASTA file written
 in DADA2 reference format. Sequence headers are replaced by taxonomy
 strings with spaces converted to underscores.}
 
@@ -19,17 +19,13 @@ strings with spaces converted to underscores.}
 taxonomy tables. This database must support accession → taxid mapping
 and taxid → full taxonomy queries used by \code{get_taxid()} and
 \code{get_taxonomy()}.}
-
-\item{show_elapsed}{(logical) whether to report elapsed time using
-\code{show_time()}. If \code{TRUE}, a timer is initialized at the beginning
-of the function and printed on exit.}
 }
 \value{
 Invisibly returns \code{NULL}. The output FASTA file contains the original
 sequences with headers rewritten in DADA2 taxonomy format.
 }
 \description{
-This function converts a GenBank-style FASTA file into a DADA2-compatible
+\code{format_to_dada()} converts a GenBank-style FASTA file into a DADA2-compatible
 reference FASTA, where sequence names follow the standardized
 \code{Kingdom;Phylum;Class;Order;Family;Genus;Species} taxonomy format.
 Accession numbers are parsed from the original FASTA headers, taxonomic
@@ -40,9 +36,10 @@ strings are constructed for use in DADA2 reference workflows.
 The function performs the following steps:
 \itemize{
 \item Reads all sequences using \code{Biostrings::readDNAStringSet()}.
-\item Extracts accession numbers from GenBank-style headers. For legacy
-\code{gi|} records, accession numbers are parsed from the embedded
-\code{"gb|ACC|"} field.
+\item Extracts accession numbers from each GenBank-style header. Legacy
+\code{gi|} records are parsed individually from their embedded
+\code{"gb|ACC|"} field, so legacy and ordinary accession headers may
+be mixed in the same FASTA file.
 \item Queries a local SQL taxonomy database to obtain:
 \itemize{
 \item taxonomic identifiers using \code{get_taxid()},
@@ -52,18 +49,14 @@ The function performs the following steps:
 \code{kingdom;phylum;class;order;family;genus;species}.
 \item Replaces original sequence names with the constructed taxonomy
 strings (spaces are replaced by underscores).
-\item Writes the formatted sequences to \code{output_fasta_file} using
+\item Writes the formatted sequences to \code{output_fasta} using
 \code{Biostrings::writeXStringSet()}.
 }
+Elapsed time is reported when the function exits.
 }
 \examples{
 \dontrun{
-format_to_dada(
-  input_fasta_file = "genbank_raw.fasta",
-  output_fasta_file = "dada2_ref.fasta",
-  sql_path = "taxonomy.sqlite",
-  show_elapsed = TRUE
-)
-}
-
+# Use an accession-labelled FASTA and the local NCBI taxonomy database.
+format_to_dada("reference.fasta", "dada2_reference.fasta", "ncbi.sqlite")
+}#'
 }

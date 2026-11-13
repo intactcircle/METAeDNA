@@ -14,7 +14,8 @@ function attempts to locate the binary inside that directory.}
 
 \item{args}{(character vector) command-line arguments passed directly to
 \code{system2()}. Each element is treated as one argument; for example:
-\code{c("--threads", "8", "--cluster_fast", "seqs.fasta")}.}
+\code{c("--threads", "8", "--cluster_fast",
+"sequences.fasta")}.}
 }
 \value{
 Invisibly returns the exit status of \code{system2()}, typically \code{0} for
@@ -25,29 +26,11 @@ successful execution. The function also prints:
 }
 }
 \description{
-This function locates the VSEARCH executable (optionally using a user-supplied
-path), constructs a command, prints the resolved executable location and full
-command string, and runs it using \code{system2()}. It is intended as a simple
-wrapper for running VSEARCH subcommands (e.g., \code{--cluster_fast},
-\code{--uchime3_denovo}, \code{--search_global}, etc.) within the METAeDNA
-workflow.
+\code{vsearch_cmd()} locates VSEARCH and runs the supplied arguments using
+\code{system2()}. The executable path and command are printed before execution.
 }
 \examples{
 \dontrun{
-# Example: run VSEARCH dereplication
-vsearch_cmd(
-  args = c(
-    "--derep_fulllength", "input.fasta",
-    "--output", "output.fasta",
-    "--threads", "4"
-  )
-)
-
-# Example: explicitly specify executable path
-vsearch_cmd(
-  vsearch_exe_path = "/usr/local/bin",
-  args = c("--version")
-)
-}
-
+vsearch_cmd(args = "--version")
+}#'
 }

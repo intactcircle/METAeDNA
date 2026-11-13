@@ -32,16 +32,8 @@ The detection logic proceeds in the following order:
 \enumerate{
 \item Use \code{Sys.which(cmd)} to check for the executable in the
 system PATH.
-\item If not found, search platform-specific default directories:
-\itemize{
-\item Windows: typical BLAST+/VSEARCH installation folders under
-\code{"C:/Program Files"} and \code{"C:/blast"}.
-\item macOS: \code{/usr/local/ncbi/blast/bin},
-\code{/opt/homebrew/bin},
-\code{/usr/local/bin}.
-\item Linux: \code{/usr/local/bin}, \code{/usr/bin},
-\code{/opt/ncbi/blast+/bin}.
-}
+\item If not found, search common platform-specific installation
+directories.
 \item If \code{path} is supplied, construct the executable path using the
 directory provided by the user.
 }

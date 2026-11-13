@@ -1,41 +1,38 @@
-# METAeDNA (beta version)
+# METAeDNA
 
-METAeDNA is an R package for environmental DNA metabarcoding workflows. It brings together paired-end read preprocessing, denoising, decontamination, reference-database construction, in-silico PCR, BLAST/VSEARCH wrappers, taxonomy querying, and diversity rarefaction/extrapolation in one reproducible analysis framework.
+METAeDNA is an R package for environmental DNA (eDNA) metabarcoding analysis,
+from paired-end sequencing reads to taxon abundance matrices and diversity
+estimates. It provides tools for read merging, primer and tag assignment,
+denoising, blank correction, reference database construction, and taxonomic
+classification.
 
-The package is designed for eDNA projects where users need to move from raw sequencing files to clean sequence tables, curated references, and taxonomic assignments while keeping intermediate results traceable.
+Reaction assignment uses tag-based multiplexing, not multiple target-gene
+markers. In the supplied library design, PCR reactions carry pairs of 8-bp
+oligonucleotide tags at the 5' ends of the primers before amplicons are pooled
+for library preparation (Taberlet et al., 2018). Primer and tag combinations
+identify each reaction, including technical replicates and blanks. Tag length
+is specified by the reaction table and is not restricted to 8 bp.
 
-## Features
 
-- **Sequence preprocessing**: demultiplexing, paired-end merging, dereplication, denoising, replicate merging, and record counting.
-- **Traceable FASTA metadata**: intermediate metadata can be stored in structured FASTA headers and converted back into tidy tables.
-- **External tool wrappers**: convenient R wrappers for BLAST+ and VSEARCH with automatic executable detection.
-- **Reference database preparation**: download and prepare NCBI BLAST databases; build local NCBI taxonomy SQLite databases.
-- **Adaptive GenBank reference building**: construct marker-specific reference FASTA files online, locally, or with a hybrid Entrez + local BLAST workflow.
-- **Taxonomic assignment support**: query local accession-to-taxid and taxonomy databases; infer LCA from BLAST hits.
-- **In-silico PCR**: search primer binding sites and extract expected amplicons from reference sequences.
-- **Decontamination and diversity checks**: identify potential contaminants and run rarefaction/extrapolation summaries.
+## Workflow overview
 
-## Installation
+The workflow is divided into three step-by-step tutorials:
 
-Install from GitHub:
+1. **Sequence processing:** merge forward and reverse reads, assign reactions,
+   filter sequences, and correct blank counts while retaining reaction-level reads.
+2. **Reference databases and taxonomy:** obtain reference sequences from local
+   nt or NCBI online, optionally trim them by in-silico PCR, and classify queries
+   with BLAST or DADA2.
+3. **Sequencing depth and diversity:** select classified sequences, calculate
+   reaction RRA and merge technical replicates, build sample-by-taxon matrices,
+   plot rarefaction curves, and calculate Hill diversity.
 
-```r
-remotes::install_github("intactcircle/METAeDNA")
-```
+![Workflow overview](vignettes/Workflow.svg)
 
-Or install from a local checkout:
-
-```r
-install.packages("remotes")
-remotes::install_local("path/to/METAeDNA")
-```
-
-METAeDNA uses Bioconductor packages such as `Biostrings`. If needed, install Bioconductor first:
-
-```r
-install.packages("BiocManager")
-BiocManager::install("Biostrings")
-```
+[Overview](vignettes/00_Workflow_overview.Rmd) ·
+[1. Sequence processing](vignettes/01_Sequence_processing.Rmd) ·
+[2. Databases and taxonomy](vignettes/02_Reference_taxonomy.Rmd) ·
+[3. Depth and diversity](vignettes/03_Community_analysis.Rmd)
 
 ## System Requirements
 
@@ -43,271 +40,113 @@ BiocManager::install("Biostrings")
 - C++17 compiler
 - zlib
 - Optional external tools:
-  - BLAST+ for `blast_cmd()`, `blastn_cmd()`, and local reference building
-  - VSEARCH for clustering and chimera-removal helpers
+  - BLAST+ for `blast_cmd()`, `blastn_cmd()`, and local reference building.
+  - VSEARCH for clustering and chimera-removal helpers.
 
-## Typical Workflow
+## Installation
+
+Install the supplied source archive locally; required dependencies are handled automatically:
 
 ```r
+# install.packages("remotes") # Run once if needed.
+remotes::install_local("METAeDNA_1.0.0.tar.gz", upgrade = "never")
 library(METAeDNA)
-
-# 1. Merge paired-end reads
-pairend(
-  fastq_1 = "sample_R1.fastq.gz",
-  fastq_2 = "sample_R2.fastq.gz",
-  out_file = "merged.fastq",
-  n_threads = 4
-)
-
-# 2. Dereplicate and denoise sequences
-dereplicate(
-  input_fasta = "merged.fastq",
-  output_fasta = "dereplicated.fasta",
-  n_threads = 4
-)
-
-denoise(
-  input_fasta = "dereplicated.fasta",
-  output_fasta = "denoised.fasta",
-  n_threads = 8
-)
-
-# 3. Convert FASTA metadata into a sequence table
-seq_table <- fasta_to_table("denoised.fasta", threads = 4)
-
-# 4. Cluster similar sequences if needed
-clustered <- vsearch_cluster(
-  seq_table = seq_table,
-  output_path = "cluster_result",
-  identity = 0.97,
-  threads = 8
-)
 ```
+Step-by-step tutorials are supplied in the source archive's `vignettes` folder.
 
-Function arguments may differ depending on input format and analysis settings; see the package help pages for details.
+## External software
 
-## Reference Database Construction
-
-METAeDNA can work with local NCBI taxonomy resources and BLAST databases.
-
-### Build Local NCBI Taxonomy Database
+[VSEARCH](https://github.com/torognes/vsearch/releases) is used for chimera
+removal and optional sequence clustering.
+[NCBI BLAST+](https://ftp.ncbi.nlm.nih.gov/blast/executables/blast+/LATEST/)
+is used for reference extraction, database construction, and similarity
+searches. The release must match the operating system. The paths below identify
+the folders containing the extracted executables:
 
 ```r
-build_ncbi_taxonomy_database(
-  taxonomy = TRUE,
-  accession = TRUE,
-  include_WGS = FALSE,
-  taxdump_dir = "ncbi_taxdump",
-  sql_path = "ncbi_taxonomy.sqlite",
-  overwrite = FALSE
-)
+tool_paths <- c("software/blast/bin", "software/vsearch/bin")
+Sys.setenv(PATH = paste(c(tool_paths, Sys.getenv("PATH")), collapse = .Platform$path.sep))
+Sys.which(c("vsearch", "blastn", "blastdbcmd", "makeblastdb"))
 ```
 
-This creates a SQLite database that can be used by `get_taxid()` and `get_taxonomy()`.
+For BLAST+, use its `bin` folder. This sets `PATH` for the current R session;
+if the programs are already on `PATH`, only the availability check is needed.
 
-### Download and Prepare BLAST Databases
-
-```r
-download_blast_db(
-  db = "ITS_fungal",
-  database_path = "blast_download"
-)
-
-prepare_blast_database(
-  file_path = "blast_download",
-  database_path = "blast_db",
-  threads = 4
-)
-```
-
-### Build Marker-Specific GenBank References
-
-Online Entrez mode:
-
-```r
-ref <- build_gb_reference(
-  mode = "online",
-  taxon = "Saxifragales",
-  gene = "ITS",
-  email = "your.name@example.org",
-  max_records = 500,
-  output_dir = "Saxifragales_ITS_ref",
-  threads = 2
-)
-```
-
-Local BLAST expansion mode:
-
-```r
-ref <- build_gb_reference(
-  mode = "local",
-  seed_fasta = "seed.fasta",
-  database = "blast_db/nt",
-  output_dir = "local_reference",
-  max_rounds = 3,
-  round_seed_limit = 200,
-  threads = 8
-)
-```
-
-Hybrid mode first retrieves online seed sequences and then expands them through a local BLAST database:
-
-```r
-ref <- build_gb_reference(
-  mode = "hybrid",
-  taxon = "Saxifragales",
-  gene = "ITS",
-  database = "blast_db/nt",
-  output_dir = "hybrid_reference",
-  email = "your.name@example.org",
-  threads = 8
-)
-```
-
-## Taxonomy Utilities
-
-Query accession numbers:
-
-```r
-taxid <- get_taxid(
-  sql_path = "ncbi_taxonomy.sqlite",
-  accessions = c("AB123456.1", "NM_001200025.1")
-)
-```
-
-Query full lineages:
-
-```r
-lineage <- get_taxonomy(
-  sql_path = "ncbi_taxonomy.sqlite",
-  tax_ids = taxid$taxid
-)
-```
-
-Infer LCA taxonomy from BLAST results:
-
-```r
-lca <- find_lca(
-  df = blast_results,
-  seqs_ID = "qseqid",
-  taxid_colum = "staxids",
-  accession_colum = "sseqid"
-)
-```
-
-Convert GenBank FASTA headers into a DADA2-style reference format:
-
-```r
-format_to_dada(
-  input_fasta_file = "genbank_raw.fasta",
-  output_fasta_file = "dada_reference.fasta",
-  sql_path = "ncbi_taxonomy.sqlite"
-)
-```
-
-## In-Silico PCR
-
-Search primer binding sites:
-
-```r
-sites <- find_primer_binding_sites(
-  target_sequence = "reference.fasta",
-  primer = "AGCTTAGGCTAC",
-  max_mismatch = 2
-)
-```
-
-Run in-silico PCR against reference sequences:
-
-```r
-amplicons <- in_silico(
-  fasta_file = "reference.fasta",
-  forward = "ACGTACGT",
-  reverse = "TGCAAGCT",
-  mis_match = 2,
-  trim = TRUE,
-  chunk_size = 5000
-)
-```
-
-For multiple primer pairs, pass equal-length vectors to `forward` and `reverse`
-and set `workers` in `in_silico()`.
-
-## BLAST and VSEARCH Wrappers
-
-Run BLASTN:
-
-```r
-blastn_cmd(
-  input = "query.fasta",
-  output = "blast_results.tsv",
-  database = "blast_db/nt",
-  max_target_seqs = 10,
-  perc_identity = 90,
-  qcov_hsp_perc = 90,
-  threads = 8
-)
-```
-
-Run VSEARCH clustering:
-
-```r
-vsearch_cluster(
-  input_fasta = "seqs.fasta",
-  output_path = "vsearch_cluster",
-  identity = 0.97,
-  mode = "cluster_fast",
-  threads = 8
-)
-```
-
-Remove chimeras:
-
-```r
-vsearch_remove_chimeras(
-  input_fasta = "seqs.fasta",
-  output_fasta = "seqs_nonchimeras.fasta",
-  mode = "uchime3_denovo",
-  output_mode = "nonchimeras",
-  threads = 8
-)
-```
-
-## Decontamination and Diversity
-
-Potential contaminants can be screened with `decontamination()`, and sequencing-depth effects can be evaluated with rarefaction/extrapolation:
-
-```r
-rare <- rarefaction_extrapolation(
-  temp_data = abundance_matrix,
-  threads = 4,
-  show_observed = TRUE,
-  show_extrapolation = TRUE
-)
-
-rare$fig
-```
-
-## Function Overview
-
-| Task | Functions |
-| --- | --- |
-| Paired-end and sequence preprocessing | `pairend()`, `demultiplex()`, `dereplicate()`, `denoise()`, `merge_replicate()`, `count_records()` |
-| FASTA and table conversion | `fasta_to_table()`, `format_to_dada()` |
-| BLAST wrappers and databases | `blast_cmd()`, `blastn_cmd()`, `download_blast_db()`, `prepare_blast_database()` |
-| VSEARCH wrappers | `vsearch_cmd()`, `vsearch_cluster()`, `vsearch_remove_chimeras()` |
-| Taxonomy databases | `build_ncbi_taxonomy_database()`, `build_col_taxonomy_database()`, `get_taxid()`, `get_taxonomy()`, `find_lca()` |
-| Reference building | `build_gb_reference()`, `build_gb_reference_online()`, `build_gb_reference_local()` |
-| In-silico PCR | `find_primer_binding_sites()`, `in_silico()` |
-| Decontamination and diversity | `decontamination()`, `rarefaction_extrapolation()` |
-
-## Notes
+### Notes
 
 - Use absolute paths for large reference databases and external command-line tools when possible.
 - NCBI downloads and accession databases can require substantial storage space.
-- Online NCBI queries should include a contact email and conservative parallel settings.
+- Online NCBI queries should include a contact email and use conservative parallel settings.
 - Local BLAST and VSEARCH functions require the corresponding executables to be installed and available in `PATH`, or supplied through the relevant executable-path argument.
+
+## Run the example: paired-end reads to corrected counts
+
+The package includes forward and reverse reads, a reaction-definition table
+containing tags and primers, and a control table linking reactions to samples,
+technical replicates, and blanks. The following example uses these inputs and
+writes intermediate files under `data/` in the current working directory.
+VSEARCH must be available for the chimera-removal step.
+
+```r
+forward_fastq <- system.file("extdata", "trnL_40k_1.fq.gz", package = "METAeDNA")
+reverse_fastq <- system.file("extdata", "trnL_40k_2.fq.gz", package = "METAeDNA")
+reaction_table <- system.file("extdata", "trnL_table.txt", package = "METAeDNA")
+control_table <- read.csv(system.file("extdata", "control_table.csv", package = "METAeDNA"))
+dir.create("data", showWarnings = FALSE)
+
+# Merge forward and reverse reads.
+pairend(fastq_1 = forward_fastq, fastq_2 = reverse_fastq,
+        out_file = "data/01_paired.fastq", min_overlap = 10L, n_threads = 4L)
+
+# Assign reactions using primers and tags.
+demultiplex(fastq_file = "data/01_paired.fastq", reaction_table = reaction_table,
+            identified_output = "data/02_identified.fasta",
+            unidentified_output = "data/02_unidentified.fasta",
+            primer_mismatch = 2L, n_threads = 4L)
+
+# Collapse identical sequences and denoise.
+collapse_sequences(fasta_file = "data/02_identified.fasta",
+                   output_fasta = "data/03_unique.fasta", n_threads = 4L)
+denoise(fasta_file = "data/03_unique.fasta", output_fasta = "data/04_denoised.fasta",
+        min_count = 10L, keep_internal = FALSE, n_threads = 4L)
+
+# Remove chimeras and read reaction counts.
+vsearch_remove_chimeras(fasta_file = "data/04_denoised.fasta",
+                       output_fasta = "data/05_nonchimera.fasta")
+sequence_table <- fasta_to_table(fasta_file = "data/05_nonchimera.fasta", n_threads = 4L)
+
+# Correct blanks while retaining reaction-level counts.
+decontamination_table <- decontamination(
+  sequence_table, control_table, control_names = c("EB", "FB", "PB")
+)
+
+saveRDS(
+  list(sequence_table = sequence_table, decontamination_table = decontamination_table,
+       control_table = control_table),
+  "data/workflow_tables.rds"
+)
+```
+
+`decontamination_table` retains corrected integer counts for individual
+reactions. After classification, retained sequences are selected by `SEQ`.
+`merge_replicate()` then calculates each reaction's RRA using its total
+retained classified reads as the denominator and averages technical replicates.
+Reaction counts are used for sequencing depth and rarefaction; sample RRA is
+used for the community matrix and diversity.
+
+Continue with [reference databases and classification](vignettes/02_Reference_taxonomy.Rmd),
+then [sequencing depth and diversity](vignettes/03_Community_analysis.Rmd).
+Processing thresholds depend on the marker and library design.
+
+
+## Reference
+
+Taberlet P, Bonin A, Zinger L, Coissac E. (2018). *Environmental DNA: For
+Biodiversity Research and Monitoring*. Oxford University Press, Chapter 6,
+"DNA amplification and multiplexing".
+[DOI](https://doi.org/10.1093/oso/9780198767220.001.0001).
 
 ## License
 
-MIT. See [LICENSE](LICENSE) and [LICENSE.md](LICENSE.md).
+[MIT](LICENSE.md).
+

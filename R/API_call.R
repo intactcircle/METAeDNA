@@ -2,12 +2,8 @@
 ## vsearch command --------------------------------
 #' Execute a VSEARCH command with automatic executable detection
 #'
-#' This function locates the VSEARCH executable (optionally using a user-supplied
-#' path), constructs a command, prints the resolved executable location and full
-#' command string, and runs it using \code{system2()}. It is intended as a simple
-#' wrapper for running VSEARCH subcommands (e.g., \code{--cluster_fast},
-#' \code{--uchime3_denovo}, \code{--search_global}, etc.) within the METAeDNA
-#' workflow.
+#' \code{vsearch_cmd()} locates VSEARCH and runs the supplied arguments using
+#' \code{system2()}. The executable path and command are printed before execution.
 #'
 #' @param vsearch_exe_path (character or NULL) optional path to the VSEARCH
 #'   executable. If \code{NULL}, the function searches for \code{"vsearch"} in
@@ -17,7 +13,7 @@
 #' @param args (character vector) command-line arguments passed directly to
 #'   \code{system2()}. Each element is treated as one argument; for example:
 #'   \code{c("--threads", "8", "--cluster_fast",
-#'   "example_data/sequences.fasta")}.
+#'   "sequences.fasta")}.
 #'
 #' @return
 #' Invisibly returns the exit status of \code{system2()}, typically \code{0} for
@@ -31,22 +27,8 @@
 #'
 #' @examples
 #' \dontrun{
-#' # Example: run VSEARCH dereplication
-#' vsearch_cmd(
-#'   args = c(
-#'     "--derep_fulllength", "example_data/sequences.fasta",
-#'     "--output", "analysis_results/unique_sequences.fasta",
-#'     "--threads", "4"
-#'   )
-#' )
-#'
-#' # Example: explicitly specify executable path
-#' vsearch_cmd(
-#'   vsearch_exe_path = "/usr/local/bin",
-#'   args = c("--version")
-#' )
-#' }
-#'
+#' vsearch_cmd(args = "--version")
+#' }#'
 #' @export
 vsearch_cmd <-function(vsearch_exe_path = NULL, args){
   # detect path -------------------
@@ -62,18 +44,15 @@ vsearch_cmd <-function(vsearch_exe_path = NULL, args){
 ## vsearch command --------------------------------
 #' Remove chimeric sequences using VSEARCH uchime-denovo or uchime-ref algorithms
 #'
-#' This function provides a wrapper for several VSEARCH chimera detection
-#' algorithms, including \code{uchime_denovo}, \code{uchime2_denovo},
-#' \code{uchime3_denovo}, and \code{uchime_ref}. It automatically constructs and
-#' executes the corresponding VSEARCH command, optionally using a user-specified
-#' VSEARCH executable path. Both reference-free and reference-based chimera
-#' detection modes are supported.
+#' \code{vsearch_remove_chimeras()} runs VSEARCH's \code{uchime_denovo},
+#' \code{uchime2_denovo}, \code{uchime3_denovo}, or \code{uchime_ref} algorithm.
+#' Reference-based detection requires a reference FASTA file.
 #'
 #' @param vsearch_exe_path (character or NULL) optional path to the VSEARCH
 #'   executable. If \code{NULL}, the function searches for \code{"vsearch"} on
 #'   the system PATH using \code{detect_cmd()}.
 #'
-#' @param input_fasta (character) path to the input FASTA file containing the
+#' @param fasta_file (character) path to the input FASTA file containing the
 #'   sequences to be checked for chimeras.
 #'
 #' @param output_fasta (character) path to the output FASTA file. The content
@@ -106,7 +85,7 @@ vsearch_cmd <-function(vsearch_exe_path = NULL, args){
 #'   (VSEARCH \code{--minuniquesize}) used mainly in de novo chimera detection.
 #'   If \code{NULL}, the option is omitted.
 #'
-#' @param threads (integer or NULL) number of CPU threads to pass to VSEARCH via
+#' @param n_threads (integer or NULL) number of CPU threads to pass to VSEARCH via
 #'   \code{--threads}. If \code{NULL}, threading is not explicitly set.
 #'
 #' @return
@@ -119,57 +98,51 @@ vsearch_cmd <-function(vsearch_exe_path = NULL, args){
 #'
 #' @examples
 #' \dontrun{
-#' # De novo chimera removal (uchime3_denovo)
+#' # collapsed.fasta is the output of collapse_sequences().
 #' vsearch_remove_chimeras(
-#'   input_fasta  = "example_data/sequences.fasta",
-#'   output_fasta = "analysis_results/nonchimeric_sequences.fasta",
-#'   mode         = "uchime3_denovo",
-#'   output_mode  = "nonchimeras",
-#'   threads      = 8
+#'   fasta_file = "collapsed.fasta", output_fasta = "nonchimera.fasta",
+#'   mode = "uchime3_denovo", n_threads = 4
 #' )
-#'
-#' # Reference-based chimera removal
-#' vsearch_remove_chimeras(
-#'   input_fasta  = "example_data/sequences.fasta",
-#'   output_fasta = "analysis_results/filtered_sequences.fasta",
-#'   mode         = "uchime_ref",
-#'   ref_fasta    = "reference_databases/silva.fasta",
-#'   output_mode  = "nonchimeras"
-#' )
-#' }
-#'
+#' }#'
 #' @export
 vsearch_remove_chimeras <- function(
     vsearch_exe_path = NULL,
-    input_fasta,
+    fasta_file,
     output_fasta,
     mode = c("uchime_denovo", "uchime2_denovo", "uchime3_denovo", "uchime_ref"),
     output_mode = c("nonchimeras", "chimeras" ,   "uchimealns", "uchimeout"),
     ref_fasta = NULL,
     minuniquesize = NULL,
-    threads = NULL
+    n_threads = NULL
 ){
   mode <- match.arg(mode)
   output_mode <- match.arg(output_mode)
+  .check_path(fasta_file, "fasta_file")
+  .check_path(output_fasta, "output_fasta")
+  if (!is.null(n_threads)) .check_number(n_threads, "n_threads", 1, .Machine$integer.max, TRUE)
+  if (!is.null(minuniquesize)) .check_number(minuniquesize, "minuniquesize", 1, .Machine$integer.max, TRUE)
   if((mode ==  "uchime_ref") & is.null(ref_fasta)){stop("In uchime_ref mode, a specific reference database (ref_fasta) must be provided as input.")}
   mode <- paste0("--", mode)
   output_mode <- paste0("--", output_mode)
   if(is.null(ref_fasta)){
-    args <- c(mode, input_fasta, output_mode, output_fasta,
-              if (!is.null(threads)) c("--threads", threads))
+    args <- c(mode, shQuote(fasta_file), output_mode, shQuote(output_fasta),
+              if (!is.null(n_threads)) c("--threads", n_threads))
   }else{
-    args <- c(mode, input_fasta, output_mode, output_fasta, "--db", ref_fasta,
-              if (!is.null(threads)) c("--threads", threads))
+    args <- c(mode, shQuote(fasta_file), output_mode, shQuote(output_fasta), "--db", shQuote(ref_fasta),
+              if (!is.null(n_threads)) c("--threads", n_threads))
   }
-  vsearch_cmd( vsearch_exe_path = vsearch_exe_path,args = args)
+  if (!is.null(minuniquesize)) args <- c(args, "--minuniquesize", minuniquesize)
+  status <- vsearch_cmd(vsearch_exe_path = vsearch_exe_path, args = args)
+  if (status != 0L) stop("VSEARCH failed with exit status ", status, ".", call. = FALSE)
+  invisible(status)
 }
 
 ## vsearch_cluster ----------------------------------
 #' Cluster a FASTA file or sequence table using VSEARCH
 #'
-#' The function accepts either a FASTA file through \code{input_fasta} or a
-#' METAeDNA sequence-abundance table through \code{seq_table}. Both input modes
-#' write cluster centroids and a \code{.uc} mapping file. When \code{seq_table}
+#' The function accepts either a FASTA file through \code{fasta_file} or a
+#' METAeDNA sequence-abundance table through \code{sequence_table}. Both input modes
+#' write cluster centroids and a \code{.uc} mapping file. When \code{sequence_table}
 #' is supplied, cluster membership is additionally merged back into the table
 #' and numeric abundance columns are summed for each experiment and centroid.
 #'
@@ -177,11 +150,11 @@ vsearch_remove_chimeras <- function(
 #'   executable. If \code{NULL}, the function searches for \code{"vsearch"}
 #'   via \code{detect_cmd()}.
 #'
-#' @param input_fasta (character) path to the FASTA file containing the input
-#'   sequences. Supply either \code{input_fasta} or \code{seq_table}.
-#' @param seq_table (data.frame or tibble) optional sequence-abundance table
+#' @param fasta_file (character) path to the FASTA file containing the input
+#'   sequences. Supply either \code{fasta_file} or \code{sequence_table}.
+#' @param sequence_table (data.frame or tibble) optional sequence-abundance table
 #'   containing \code{SEQ_ID}, \code{SEQ}, and \code{total_count}. Supply either
-#'   \code{seq_table} or \code{input_fasta}.
+#'   \code{sequence_table} or \code{fasta_file}.
 #'
 #' @param output_path (character) directory where clustering output files will
 #'   be written. The function creates:
@@ -189,8 +162,6 @@ vsearch_remove_chimeras <- function(
 #'     \item \code{vsearch_cluster.fas} — cluster centroid sequences,
 #'     \item \code{vsearch_cluster.uc}  — VSEARCH cluster mapping file.
 #'   }
-#' @param output_dir Deprecated alias of \code{output_path}.
-#'
 #' @param identity (numeric) sequence identity threshold passed to VSEARCH via
 #'   \code{--id}. Typical values range from 0.90 to 0.99, depending on the desired
 #'   clustering level (e.g., OTU97 uses \code{0.97}).
@@ -205,7 +176,7 @@ vsearch_remove_chimeras <- function(
 #'   The selected mode is automatically converted into the corresponding flag
 #'   (e.g., \code{--cluster_fast}).
 #'
-#' @param threads (integer or NULL) number of CPU threads to use, passed to
+#' @param n_threads (integer or NULL) number of CPU threads to use, passed to
 #'   VSEARCH via \code{--threads}. If \code{NULL}, threading is not explicitly
 #'   specified.
 #' @param minsize Minimum abundance retained by \code{cluster_unoise}. VSEARCH
@@ -216,78 +187,70 @@ vsearch_remove_chimeras <- function(
 #' @details
 #' Mode \code{"cluster_unoise"} runs VSEARCH's UNOISE3 implementation. Input
 #' labels must contain \code{size=} abundance annotations; these are generated
-#' automatically for \code{seq_table} input. UNOISE denoising does not perform
+#' automatically for \code{sequence_table} input. UNOISE denoising does not perform
 #' de novo chimera removal. Run \code{vsearch_remove_chimeras()} afterwards if
 #' that step is required. The \code{identity} argument applies to the three
 #' conventional clustering modes and is not passed to \code{cluster_unoise}.
 #'
 #' @return
-#' When \code{input_fasta} is supplied, returns the exit status from
-#' \code{vsearch_cmd()}. When \code{seq_table} is supplied, returns a collapsed
+#' When \code{fasta_file} is supplied, returns the exit status from
+#' \code{vsearch_cmd()}. When \code{sequence_table} is supplied, returns a collapsed
 #' tibble containing one row per experiment and centroid, with numeric
 #' abundance columns summed across cluster members.
 #'
 #' @examples
 #' \dontrun{
-#' vsearch_cluster(
-#'   vsearch_exe_path = "/usr/local/bin/",
-#'   input_fasta      = "example_data/sequences.fasta",
-#'   output_path      = "analysis_results/sequence_clusters",
-#'   identity         = 0.97,
-#'   mode             = "cluster_fast",
-#'   threads          = 8
-#' )
-#'
-#' clustered_table <- vsearch_cluster(
-#'   seq_table  = my_seq_table,
-#'   output_path = "analysis_results/table_clusters",
-#'   identity   = 0.97,
-#'   threads    = 8
-#' )
-#' }
-#'
-#' @importFrom tidyselect all_of where
+#' # Cluster the FASTA produced by chimera removal.
+#' vsearch_cluster(fasta_file = "nonchimera.fasta",
+#'                 output_path = "clusters", identity = 0.97, n_threads = 4)
+#' }#'
+#' @importFrom dplyr all_of where everything
+#' @importFrom stats na.omit
 #' @export
 vsearch_cluster <- function(vsearch_exe_path = NULL,
-                            input_fasta = NULL,
+                            sequence_table = NULL,
+                            fasta_file = NULL,
                             output_path = NULL,
                             identity = 0.97,
                             mode = c("cluster_fast", "cluster_size", "cluster_smallmem","cluster_unoise"),
-                            threads = NULL,
-                            output_dir = output_path,
-                            seq_table = NULL,
+                            n_threads = NULL,
                             minsize = 8L,
                             unoise_alpha = 2.0){
-  if (is.null(output_path)) output_path <- output_dir
-  if (is.null(input_fasta) == is.null(seq_table)) {
-    stop("Provide either input_fasta or seq_table.", call. = FALSE)
+  .check_number(identity, "identity", 0, 1)
+  .check_number(minsize, "minsize", 1, .Machine$integer.max, TRUE)
+  .check_number(unoise_alpha, "unoise_alpha", 0)
+  if (!is.null(n_threads)) .check_number(n_threads, "n_threads", 1, .Machine$integer.max, TRUE)
+  if (is.null(fasta_file) == is.null(sequence_table)) {
+    stop("Provide either fasta_file or sequence_table.", call. = FALSE)
   }
-  if (is.null(output_path)) stop("output_path or output_dir must be provided.", call. = FALSE)
+  if (is.null(output_path)) stop("output_path must be provided.", call. = FALSE)
   dir.create(output_path, recursive = TRUE, showWarnings = FALSE)
   mode <- match.arg(mode)
 
-  if (!is.null(seq_table)) {
-    dere_table <- seq_table %>%
+  if (!is.null(sequence_table)) {
+    dere_table <- sequence_table %>%
       group_by(SEQ_ID, SEQ) %>%
       summarise(total_count = sum(total_count), .groups = "drop")
-    input_fasta <- file.path(output_path, "vsearch_cluster.fasta")
+    fasta_file <- file.path(output_path, "vsearch_cluster.fasta")
     temp_seqs <- DNAStringSet(dere_table$SEQ)
     names(temp_seqs) <- paste0(dere_table$SEQ_ID, ";size=", dere_table$total_count)
-    writeXStringSet(temp_seqs, input_fasta)
+    writeXStringSet(temp_seqs, fasta_file)
   }
 
-  args <- c(paste0("--", mode), input_fasta,
-            "--centroids", file.path(output_path, "vsearch_cluster.fas"),
+  args <- c(paste0("--", mode), shQuote(fasta_file),
+            "--centroids", shQuote(file.path(output_path, "vsearch_cluster.fas")),
             if (mode == "cluster_unoise") {
               c("--minsize", minsize, "--unoise_alpha", unoise_alpha)
             } else {
               c("--id", identity)
             },
-            "--uc", file.path(output_path, "vsearch_cluster.uc"),
-            if (!is.null(threads)) c("--threads", threads))
+            "--uc", shQuote(file.path(output_path, "vsearch_cluster.uc")),
+            if (!is.null(n_threads)) c("--threads", n_threads))
   status <- vsearch_cmd(vsearch_exe_path = vsearch_exe_path, args = args)
 
-  if (is.null(seq_table)) return(status)
+  if (status != 0L) stop("VSEARCH failed with exit status ", status, ".", call. = FALSE)
+
+  if (is.null(sequence_table)) return(status)
 
   temp_ucfile <- file.path(output_path, "vsearch_cluster.uc") %>%
     read_tsv(show_col_types = F,
@@ -297,7 +260,7 @@ vsearch_cluster <- function(vsearch_exe_path = NULL,
   H_seq <- temp_ucfile %>% filter(type == "H") %>% select(query_ID,centoid_ID) %>%
     mutate(across(all_of(everything()), ~str_remove(.x, ";size.*")))
 
-  seq_table %>% left_join(H_seq, by = join_by(SEQ_ID == query_ID)) %>%
+  sequence_table %>% left_join(H_seq, by = join_by(SEQ_ID == query_ID)) %>%
     mutate(SEQ_ID = case_when(is.na(centoid_ID) ~ SEQ_ID,
                         !is.na(centoid_ID) ~ centoid_ID,
                         .default = NA),
@@ -315,11 +278,9 @@ vsearch_cluster <- function(vsearch_exe_path = NULL,
 # BLAST -------------------------------------------------
 #' Run an NCBI BLAST+ command-line program
 #'
-#' This function wraps the execution of NCBI BLAST+ command-line tools
-#' (e.g. \code{blastn}, \code{blastp}, \code{blastx}, \code{tblastn},
-#' \code{makeblastdb}). It automatically detects the BLAST executable,
-#' constructs a command, prints the resolved executable location and full
-#' command string, and executes the command using \code{system2()}.
+#' \code{blast_cmd()} runs an NCBI BLAST+ executable with the supplied arguments
+#' using \code{system2()}. The executable path and command are printed before
+#' execution.
 #'
 #' @param base_cmd (character) name of the BLAST+ subcommand to run,
 #'   such as \code{"blastn"}, \code{"blastp"}, \code{"makeblastdb"}, or
@@ -328,7 +289,7 @@ vsearch_cluster <- function(vsearch_exe_path = NULL,
 #' @param args (character vector or NULL) additional command-line arguments
 #'   passed directly to BLAST+. Each element is treated as a separate argument.
 #'   For example:
-#'   \code{c("-query", "example_data/query_sequences.fasta",
+#'   \code{c("-query", "queries.fasta",
 #'   "-db", "nt", "-out", "analysis_results/blast_results.tsv")}.
 #'
 #' @param blast_exe_path (character or NULL) optional directory or full path
@@ -355,25 +316,11 @@ vsearch_cluster <- function(vsearch_exe_path = NULL,
 #'
 #' @examples
 #' \dontrun{
-#' # Example: run BLASTN alignment
-#' blast_cmd(
-#'   base_cmd = "blastn",
-#'   args = c("-query", "example_data/query_sequences.fasta",
-#'            "-db", "reference_databases/blast/nt",
-#'            "-evalue", "1e-10",
-#'            "-outfmt", "6",
-#'            "-out", "analysis_results/blast_results.tsv")
-#' )
-#'
-#' # Example: specify BLAST+ installation directory
-#' blast_cmd(
-#'   base_cmd = "makeblastdb",
-#'   args = c("-in", "example_data/reference_sequences.fasta",
-#'            "-dbtype", "nucl"),
-#'   blast_exe_path = "/usr/local/ncbi/blast/bin"
-#' )
-#' }
-#'
+#' blast_cmd(base_cmd = "blastn", args = "-version")
+#' # reference.fasta contains the chosen reference sequences.
+#' blast_cmd("makeblastdb", c("-in", shQuote("reference.fasta"),
+#'                            "-dbtype", "nucl", "-out", shQuote("reference")))
+#' }#'
 #' @export
 blast_cmd <- function(
     base_cmd = "blastn",
@@ -400,22 +347,17 @@ blast_cmd <- function(
 ## BLASTN -------------------------------
 #' Perform BLASTN sequence queries against a nucleotide database
 #'
-#' This function provides a high-level interface for running BLASTN searches
-#' using NCBI BLAST+. It constructs a standardized BLASTN command, ensures
-#' appropriate output formatting, prints diagnostic messages, and executes the
-#' command through \code{blast_cmd()}. The resulting BLAST output is written
-#' directly to a user-specified file.
+#' \code{blastn_cmd()} searches a nucleotide database with a query FASTA file.
+#' It runs BLASTN through \code{blast_cmd()} and writes tabular hits to
+#' \code{output}.
 #'
-#' @param input (character) path to the query FASTA file. The file should
+#' @param fasta_file (character) path to the query FASTA file. The file should
 #'   contain one or more nucleotide sequences. A complete absolute path is
 #'   recommended for reproducibility.
 #'
 #' @param output (character) path to the output file where BLAST tabular
 #'   results will be written. The function writes BLAST format 6 with additional
 #'   fields (\code{qcovs}, \code{staxids}).
-#' @param input_fasta Deprecated alias of \code{input}.
-#' @param output_file Deprecated alias of \code{output}.
-#'
 #' @param database (character) path to the BLAST nucleotide database
 #'   (i.e., files with extensions such as \code{.nhr}, \code{.nin}, \code{.nsq}).
 #'   The database must be prepared beforehand using \code{makeblastdb}.
@@ -433,7 +375,7 @@ blast_cmd <- function(
 #' @param qcov_hsp_perc (numeric) minimum percentage query coverage per HSP
 #'   (\code{-qcov_hsp_perc}), typically used to restrict low-coverage hits.
 #'
-#' @param threads (integer or NULL) number of CPU threads allocated to BLAST
+#' @param n_threads (integer or NULL) number of CPU threads allocated to BLAST
 #'   (\code{-num_threads}). If \code{NULL}, the function defaults to
 #'   \code{availableCores()/4}.
 #'
@@ -453,48 +395,44 @@ blast_cmd <- function(
 #'
 #' @examples
 #' \dontrun{
-#' blastn_cmd(
-#'   input   = "example_data/query_sequences.fasta",
-#'   output  = "analysis_results/blast_results.tsv",
-#'   database = "reference_databases/ITS_RefSeq_Fungi"
-#' )
-#'
-#' # Specify BLAST installation directory
-#' blastn_cmd(
-#'   input   = "example_data/query_sequences.fasta",
-#'   output  = "analysis_results/blast_results.tsv",
-#'   database = "reference_databases/blast/nt",
-#'   blast_exe_path = "/usr/local/ncbi/blast/bin"
-#' )
-#' }
-#'
+#' # queries.fasta contains the sequences to classify; reference is a BLAST prefix.
+#' blastn_cmd(fasta_file = "queries.fasta", output = "blast.tsv",
+#'            database = "reference", n_threads = 4)
+#' }#'
 #' @export
-blastn_cmd <- function(input = NULL, output = NULL, database, blast_exe_path = NULL,
+blastn_cmd <- function(fasta_file = NULL, output = NULL, database, blast_exe_path = NULL,
                        max_target_seqs = 10, perc_identity = 90, qcov_hsp_perc = 90,
-                       threads = NULL, input_fasta = input, output_file = output){
-  if (is.null(input)) input <- input_fasta
-  if (is.null(output)) output <- output_file
-  if (is.null(input)) stop("input or input_fasta must be provided.", call. = FALSE)
+                       n_threads = NULL){
+  if (is.null(fasta_file)) stop("fasta_file must be provided.", call. = FALSE)
   if (is.null(output)) stop("output or output_file must be provided.", call. = FALSE)
   show_time("Starting BLASTN")
-  if(is.null(threads)){
-    threads <- future::availableCores()/4
-    show_time(paste0("Using threads: ", threads))
+  if(is.null(n_threads)){
+    n_threads <- max(1L, floor(future::availableCores()/4))
+    show_time(paste0("Using threads: ", n_threads))
   }
 
-  blast_cmd(
+  .check_number(n_threads, "n_threads", 1, .Machine$integer.max, TRUE)
+  .check_number(max_target_seqs, "max_target_seqs", 1, .Machine$integer.max, TRUE)
+  .check_number(perc_identity, "perc_identity", 0, 100)
+  .check_number(qcov_hsp_perc, "qcov_hsp_perc", 0, 100)
+  .check_path(fasta_file, "fasta_file")
+  .check_path(output, "output")
+  .check_path(database, "database")
+  status <- blast_cmd(
     base_cmd = "blastn",
     args = c(
-      "-query", input,
-      "-db", database,
+      "-query", shQuote(fasta_file),
+      "-db", shQuote(database),
       # table format
       "-outfmt", "\"6 std qcovs staxids\"",
       "-max_target_seqs", max_target_seqs,
-      "-out", output,
+      "-out", shQuote(output),
       "-perc_identity", perc_identity,
       "-qcov_hsp_perc", qcov_hsp_perc,
-      "-num_threads",threads
+      "-num_threads",n_threads
     ),
     blast_exe_path = blast_exe_path
   )
+  if (status != 0L) stop("BLASTN failed with exit status ", status, ".", call. = FALSE)
+  invisible(status)
 }

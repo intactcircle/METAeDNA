@@ -34,16 +34,6 @@
 #include <zlib.h>
 #include <regex>
 #include "seq_compare.hpp"
-#ifdef _OPENMP
-#include <omp.h> 
-#else
-#endif
-
-#ifdef USE_RCPP_OUTPUT
-#include <Rcpp.h>
-using namespace Rcpp;
-#else
-#endif
 // -------------------------------------------------------------------
 // Core data structures
 // -------------------------------------------------------------------
@@ -569,7 +559,7 @@ void remove_internal_key(Node& nd) {
 //' \code{size=} and \code{"total_count"} fields are updated to match the
 //' retained counts. Output can be written either uncompressed or gzip-compressed.
 //'
-//' @param input_fasta (character) string; path to the input FASTA file. The file
+//' @param fasta_file (character) string; path to the input FASTA file. The file
 //'   may be plain text or gzip-compressed (suffix \code{.gz}).
 //' @param output_fasta (character )string; path to the output FASTA file. If the
 //'   file name ends with \code{.gz} or \code{compress_output = TRUE}, the
@@ -638,7 +628,7 @@ void remove_internal_key(Node& nd) {
 //' @section Citations: Boyer, F., Mercier, C., Bonin, A., Le Bras, Y., Taberlet, P. and Coissac, E. (2016), obitools: a unix-inspired software package for DNA metabarcoding. Mol Ecol Resour, 16: 176-182. \url{https://doi.org/10.1111/1755-0998.12428}
 //' @export
 // [[Rcpp::export]]
-void denoise(std::string input_fasta,
+void denoise(std::string fasta_file,
     std::string output_fasta,
     size_t sequence_min_L = 1,
     size_t sequence_max_L = 1000,
@@ -654,19 +644,27 @@ void denoise(std::string input_fasta,
     bool debug = false,
     int compress_level = 6)
 {
+    check_processing_parameters(n_threads, 1, compress_level);
+    check_output_path(output_fasta, {fasta_file});
+    if (sequence_min_L < 1 || sequence_max_L < sequence_min_L || sequence_max_L > INT_MAX ||
+        min_count < 1 || min_count > INT_MAX || max_diff > INT_MAX || max_indel > INT_MAX ||
+        !std::isfinite(threshold) || threshold <= 0 || threshold >= 1)
+        throw std::invalid_argument("Invalid length, count, difference, or abundance-ratio threshold.");
+    n_threads = std::min(n_threads, detect_system_threads());
     auto start_time= std::chrono::system_clock::now();
     show_time("Denoising...");
-    input_fasta = expandTilde(input_fasta);
+    fasta_file = expandTilde(fasta_file);
     output_fasta = expandTilde(output_fasta);
     // Detect input type and open.
-    bool is_gz_in = isGzFile(input_fasta);
+    bool is_gz_in = isGzFile(fasta_file);
     FILE* fp_plain = nullptr;
     gzFile fp_gz = nullptr;
-    if (is_gz_in) fp_gz = gzopen(expandTilde(input_fasta).c_str(), "rb");
-    else          fp_plain = fopen(expandTilde(input_fasta).c_str(), "rb");
+    FileGuard input_guard(fp_plain, fp_gz);
+    if (is_gz_in) fp_gz = gzopen(expandTilde(fasta_file).c_str(), "rb");
+    else          fp_plain = fopen(expandTilde(fasta_file).c_str(), "rb");
     if ((is_gz_in && fp_gz == nullptr) || (!is_gz_in && fp_plain == nullptr)) {
-        CERR << "[Error] Cannot open input file: " << input_fasta << std::endl;
-        return;
+        CERR << "[Error] Cannot open input file: " << fasta_file << std::endl;
+        throw std::runtime_error("Sequence processing failed; see the preceding error.");
     }
 
     // Output type: .gz or compress_output => gzip.
@@ -685,6 +683,7 @@ void denoise(std::string input_fasta,
     }
     FILE* out_plain = nullptr;
     gzFile out_gz = nullptr;
+    FileGuard output_guard(out_plain, out_gz);
     if (is_gz_out) {
         std::string mode = "wb" + std::to_string(compress_level);
         out_gz = gzopen(output_fasta.c_str(), mode.c_str());
@@ -694,9 +693,9 @@ void denoise(std::string input_fasta,
     }
     if ((is_gz_out && out_gz == nullptr) || (!is_gz_out && out_plain == nullptr)) {
         CERR << "[Error] Cannot open output file: " << output_fasta << std::endl;
-        if (fp_plain) fclose(fp_plain);
-        if (fp_gz) gzclose(fp_gz);
-        return;
+        if (fp_plain) closeFile(fp_plain);
+        if (fp_gz) closeGzip(fp_gz);
+        throw std::runtime_error("Sequence processing failed; see the preceding error.");
     }
 
 
@@ -729,8 +728,8 @@ void denoise(std::string input_fasta,
 		nd.encode = encode4bit(nd.seq);
         nodes.push_back(std::move(nd));
     }
-    if (fp_plain) fclose(fp_plain);
-    if (fp_gz)    gzclose(fp_gz);
+    if (fp_plain) closeFile(fp_plain);
+    if (fp_gz)    closeGzip(fp_gz);
 
 
     std::vector<std::string> exp_name(exp_name_set.begin(), exp_name_set.end());
@@ -860,6 +859,9 @@ void denoise(std::string input_fasta,
 			}
             remove_internal_key(nd);
         }
+        nd.total_count = 0;
+        for (const auto& experiment : nd.exp_sample_count)
+            for (const auto& sample : experiment.second) nd.total_count += sample.second;
         // Build JSON
         std::ostringstream js;
         js << "\"denoise\":{"
@@ -945,8 +947,8 @@ void denoise(std::string input_fasta,
 
     }
 
-    if (out_plain) fclose(out_plain);
-    if (out_gz)    gzclose(out_gz);
+    if (out_plain) closeFile(out_plain);
+    if (out_gz)    closeGzip(out_gz);
 
     auto end_time = std::chrono::system_clock::now();
     std::chrono::duration<double> elapsed = end_time - start_time;

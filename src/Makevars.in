@@ -1,8 +1,9 @@
 CXX_STD = CXX17
-OBJECTS = RcppExports.o accession_import.o count.o demultiplex.o denoise.o pairend.o seq_compare.o unique.o utils.o
 
+# Source files and compiler optimization
+OBJECTS = RcppExports.o accession_import.o count.o demultiplex.o denoise.o fastq_profile.o pairend.o reorder_fastq.o seq_compare.o unique.o utils.o
+
+# Package features and libraries
 PKG_CPPFLAGS = -DUSE_RCPP_OUTPUT @zlib_cflags@
-
-PKG_CXXFLAGS =@PKG_CXXFLAGS@
-
-PKG_LIBS = @zlib_libs@ -llzma @PKG_LIBS@
+PKG_CXXFLAGS = @OPT_CXXFLAGS@ @PKG_CXXFLAGS@
+PKG_LIBS = @zlib_libs@ @PKG_LIBS@

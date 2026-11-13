@@ -2,96 +2,67 @@
 % Please edit documentation in R/decontamination.R
 \name{merge_replicate}
 \alias{merge_replicate}
-\title{Merge technical replicates using Relative Read Abundance (RRA)}
+\title{Merge PCR replicates within each experiment and sample}
 \usage{
 merge_replicate(
-  seq_table,
+  sequence_table,
   control_table,
   method = c("mean_rra", "max_rra", "both_occur"),
   repeat_times = 1,
+  replicate_number = NULL,
   present_absent = FALSE,
-  remove_all_zero = T
+  remove_all_zero = TRUE
 )
 }
 \arguments{
-\item{seq_table}{A data frame containing per-sequence counts.
-Must include columns of the form \code{count_TAG}, where TAG corresponds
-to replicate identifiers in \code{control_table}.}
+\item{sequence_table}{Sequence table with \code{count_TAG} columns. Include
+\code{experiment} when the table contains several experiments.}
 
-\item{control_table}{A data frame defining the relationship between
-biological samples and technical replicates. Must contain at least:
-\itemize{
-\item \code{group}: biological group identifier;
-\item \code{sample}: biological sample name;
-\item \code{tag}: replicate tag (matching \code{count_TAG} in seq_table);
-\item \code{category}: sample type, where rows with
-\code{category == "sample"} define valid sequencing samples.
-}}
+\item{control_table}{Reaction definitions containing \code{group}, \code{sample_id},
+\code{reaction_id} and \code{category}. Only \code{category = "sample"} is merged.
+Multiple experiments require an \code{experiment} column in both tables.
+A reaction ID may be reused in different experiments. Reaction IDs name
+count columns; they are not the oligonucleotide tag sequences.}
 
-\item{method}{Character string specifying the replicate-merging strategy.
-One of:
-\itemize{
-\item \code{"mean_rra"}
-\item \code{"max_rra"}
-\item \code{"both_occur"}
-}}
+\item{method}{\code{"mean_rra"} averages reaction relative abundances;
+\code{"max_rra"} takes their maximum; \code{"both_occur"} averages them and
+retains only sequences found in at least \code{repeat_times} reactions.}
 
-\item{repeat_times}{Integer. For \code{"both_occur"} mode, a sequence must
-appear (abundance > 0) in at least this number of replicates to be retained.}
+\item{repeat_times}{Minimum number of positive reactions for \code{"both_occur"}.}
 
-\item{present_absent}{Logical. If \code{TRUE}, the merged replicate columns
-are converted into presence/absence (1/0).}
+\item{replicate_number}{Positive integer denominator for averaging.
+\code{NULL} uses the number of reaction columns for each sample. A value
+of 3 divides by 3 even if the control table lists only one reaction.}
 
-\item{remove_all_zero}{Logical. If \code{TRUE} (default), sequences whose
-merged abundance is zero in all samples are removed.}
+\item{present_absent}{Convert merged abundances to 0 or 1.}
+
+\item{remove_all_zero}{Remove rows absent from all merged samples.}
 }
 \value{
-A modified version of \code{seq_table} containing one merged abundance column
-per biological sample (e.g., \code{"G1_S1"}), with optional presence/absence
-and zero-row removal performed.
+The sequence table with sample reaction columns replaced by
+\code{group_sample} columns for one experiment, or
+\code{experiment_group_sample} for several experiments. Other-experiment rows
+receive zero in each sample column. Status columns are removed.
 }
 \description{
-This function merges technical replicates of PCR belonging to the same
-biological sample, based on replicate definitions provided in \code{control_table}.
-For each group–sample combination, replicate count columns (e.g., \code{count_A1},
-\code{count_A2}, \code{count_A3}) are first normalized to Relative Read Abundance (RRA),
-and then merged using one of three strategies:
-
-\itemize{
-\item \code{"mean_rra"}: average RRA across replicates;
-\item \code{"max_rra"}: maximum RRA across replicates;
-\item \code{"both_occur"}: sequence must appear in at least
-\code{repeat_times} replicates; otherwise the merged abundance is set
-to zero.
-}
-
-After merging, the original replicate count columns are removed and replaced
-by a new column named \code{"group_sample"} (e.g., \code{"G1_S1"}).
+Normalize each reaction to relative read abundance, then combine reactions
+belonging to the same experiment, group and sample.
 }
 \details{
-For each biological sample, the function:
-\enumerate{
-\item Identifies replicate tags from \code{control_table};
-\item Extracts corresponding count columns from \code{seq_table};
-\item Normalizes each replicate column to RRA by dividing by its column sum;
-\item Merges replicates using the method specified by \code{method};
-\item Drops the original \code{count_} columns;
-\item Adds a merged abundance column named \code{group_sample}.
-}
-
-This function operates at the sequence level: each row corresponds to an
-individual sequence (OTU/ASV) and replicates are merged for that row.
+Each reaction is normalized using reads from its own experiment.
+Empty reactions contribute zero. Declared reaction columns must exist.
+Retained values are not renormalized after occurrence filtering; column
+sums may differ from one, especially with a fixed denominator or max RRA.
 }
 \examples{
-\dontrun{
-merged_seq <- merge_replicate(
-    seq_table       = seq_tab,
-    control_table   = ctrl_tab,
-    method          = "both_occur",
-    repeat_times    = 2,
-    present_absent  = FALSE,
-    remove_all_zero = TRUE
-)
-}
-
+sequence_table <- data.frame(experiment = rep(c("run1", "run2"), each = 2),
+                        SEQ = rep(c("ACGT", "TGCA"), 2),
+                        count_A = c(9, 1, 2, 8), count_B = c(3, 7, 4, 6))
+controls <- expand.grid(experiment = c("run1", "run2"), reaction_id = c("A", "B"),
+                        stringsAsFactors = FALSE)
+controls$group <- "G1"
+controls$sample_id <- "S1"
+controls$category <- "sample"
+merge_replicate(sequence_table, controls)
+merge_replicate(sequence_table, controls, replicate_number = 3)
 }

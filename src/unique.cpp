@@ -12,15 +12,6 @@
 #include <vector>
 #include "utils.hpp"
 
-#ifdef _OPENMP
-#include <omp.h> 
-#else
-#endif
-#ifdef USE_RCPP_OUTPUT
-#include <Rcpp.h>
-using namespace Rcpp;
-#else
-#endif
 // 解析信息结构
 struct UniqueInfo {
     std::string prefix;
@@ -34,7 +25,7 @@ struct UniqueInfo {
 // ------------------------------
 //' Collapse duplicate sequences in a FASTA/FASTQ file
 //'
-//' This function identifies all identical sequences in an input FASTA or FASTQ
+//' \code{collapse_sequences()} identifies identical sequences in an input FASTA or FASTQ
 //' file and collapses them into unique sequence entries. For each unique
 //' sequence, the function aggregates the total read count and the per-PCR
 //' (experiment–sample) counts derived from the input header metadata. The
@@ -43,7 +34,7 @@ struct UniqueInfo {
 //' sequence length. If paired-end metadata was present (in a `"pairend"`
 //' block), it is preserved in the output.
 //'
-//' @param input_fasta (character) path to the input FASTA or FASTQ file. The
+//' @param fasta_file (character) path to the input FASTA or FASTQ file. The
 //'   file may be plain text or gzip-compressed (suffix \code{.gz}).
 //'
 //' @param output_fasta (character) path to the dereplicated output FASTA file.
@@ -90,29 +81,32 @@ struct UniqueInfo {
 //' metadata, and a single representative sequence.
 //' @export
 // [[Rcpp::export]]
-void dereplicate(std::string input_fasta,
+void collapse_sequences(std::string fasta_file,
     std::string output_fasta,
     int n_threads = 4,
     bool compress_output=false,
     int compress_level=6,
     size_t batch_size = 100000)
 {
+    check_processing_parameters(n_threads, batch_size, compress_level);
+    check_output_path(output_fasta, {fasta_file});
     int max_threads = detect_system_threads();
     if (n_threads > max_threads) n_threads = max_threads;
-	input_fasta = expandTilde(input_fasta);
+	fasta_file = expandTilde(fasta_file);
     output_fasta = expandTilde(output_fasta);
     auto start_time = std::chrono::system_clock::now();
 
     show_time("Merging duplicates...");
     
-    bool is_gz_in = isGzFile(input_fasta);
+    bool is_gz_in = isGzFile(fasta_file);
     FILE* fp_plain = nullptr;
     gzFile fp_gz = nullptr;
-    if (is_gz_in) fp_gz = gzopen(input_fasta.c_str(), "rb");
-    else fp_plain = fopen(input_fasta.c_str(), "rb");
+    FileGuard input_guard(fp_plain, fp_gz);
+    if (is_gz_in) fp_gz = gzopen(fasta_file.c_str(), "rb");
+    else fp_plain = fopen(fasta_file.c_str(), "rb");
     if ((is_gz_in && fp_gz == nullptr) || (!is_gz_in && fp_plain == nullptr)) {
-        CERR << "[Error] Cannot open input file: " << input_fasta << std::endl;
-        return;
+        CERR << "[Error] Cannot open input file: " << fasta_file << std::endl;
+        throw std::runtime_error("Sequence processing failed; see the preceding error.");
     }
 
     bool is_gz_out = false;
@@ -124,10 +118,11 @@ void dereplicate(std::string input_fasta,
             compress_output = true;
         }
     }
-    bool fastq_file = isFastqFile(input_fasta);
-    // bool fastq_file = isFastqFile1(input_fasta);
+    bool fastq_file = isFastqFile(fasta_file);
+    // bool fastq_file = isFastqFile1(fasta_file);
     FILE* out_plain = nullptr;
     gzFile out_gz = nullptr;
+    FileGuard output_guard(out_plain, out_gz);
     if (is_gz_out) {
         std::string mode = "wb" + std::to_string(compress_level);
         out_gz = gzopen(output_fasta.c_str(), mode.c_str());
@@ -137,9 +132,9 @@ void dereplicate(std::string input_fasta,
     }
     if ((is_gz_out && out_gz == nullptr) || (!is_gz_out && out_plain == nullptr)) {
         CERR << "[Error] Cannot open output file: " << output_fasta << std::endl;
-        if (fp_plain) fclose(fp_plain);
-        if (fp_gz) gzclose(fp_gz);
-        return;
+        if (fp_plain) closeFile(fp_plain);
+        if (fp_gz) closeGzip(fp_gz);
+        throw std::runtime_error("Sequence processing failed; see the preceding error.");
     }
     show_time("Using " + std::to_string(n_threads) + " thread(s)");
     const size_t BATCH = batch_size;
@@ -205,9 +200,9 @@ void dereplicate(std::string input_fasta,
                     exp = json.substr(ex_p, ex_e - ex_p);
                 }
                 // sample position
-                size_t sm_p = json.find("\"sample\":\"");
+                size_t sm_p = json.find("\"reaction_id\":\"");
                 if (sm_p != std::string::npos) {
-                    sm_p += 10;
+                    sm_p += 15;
                     size_t sm_e = json.find('"', sm_p);
                     sample = json.substr(sm_p, sm_e - sm_p);
                 }
@@ -288,7 +283,7 @@ void dereplicate(std::string input_fasta,
             << ",\"seq_length\":" << seq.size() << "}";
 
         std::ostringstream full_js;
-        full_js << ui.pairend_json << "\"stat\":" << exp_block.str() << "}";
+        full_js << (ui.pairend_json.empty() ? "{" : ui.pairend_json) << "\"stat\":" << exp_block.str() << "}";
 
         std::string header = ">" + ui.prefix +
             ";size=" + std::to_string(ui.total_count) +
@@ -297,10 +292,10 @@ void dereplicate(std::string input_fasta,
         writeBuf(seq + "\n", is_gz_out, out_plain, out_gz);
     }
 
-    if (fp_plain) fclose(fp_plain);
-    if (fp_gz) gzclose(fp_gz);
-    if (out_plain) fclose(out_plain);
-    if (out_gz) gzclose(out_gz);
+    if (fp_plain) closeFile(fp_plain);
+    if (fp_gz) closeGzip(fp_gz);
+    if (out_plain) closeFile(out_plain);
+    if (out_gz) closeGzip(out_gz);
 
     auto end_time = std::chrono::system_clock::now();
    

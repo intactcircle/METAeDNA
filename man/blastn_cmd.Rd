@@ -5,18 +5,18 @@
 \title{Perform BLASTN sequence queries against a nucleotide database}
 \usage{
 blastn_cmd(
-  input,
-  output,
+  fasta_file = NULL,
+  output = NULL,
   database,
-  blast_exe_path,
+  blast_exe_path = NULL,
   max_target_seqs = 10,
   perc_identity = 90,
   qcov_hsp_perc = 90,
-  threads = NULL
+  n_threads = NULL
 )
 }
 \arguments{
-\item{input}{(character) path to the query FASTA file. The file should
+\item{fasta_file}{(character) path to the query FASTA file. The file should
 contain one or more nucleotide sequences. A complete absolute path is
 recommended for reproducibility.}
 
@@ -41,7 +41,7 @@ reporting alignments (\code{-perc_identity}).}
 \item{qcov_hsp_perc}{(numeric) minimum percentage query coverage per HSP
 (\code{-qcov_hsp_perc}), typically used to restrict low-coverage hits.}
 
-\item{threads}{(integer or NULL) number of CPU threads allocated to BLAST
+\item{n_threads}{(integer or NULL) number of CPU threads allocated to BLAST
 (\code{-num_threads}). If \code{NULL}, the function defaults to
 \code{availableCores()/4}.}
 }
@@ -51,11 +51,9 @@ as returned by \code{blast_cmd()}. The main result is the tabular BLAST output
 written to the file specified by \code{output}.
 }
 \description{
-This function provides a high-level interface for running BLASTN searches
-using NCBI BLAST+. It constructs a standardized BLASTN command, ensures
-appropriate output formatting, prints diagnostic messages, and executes the
-command through \code{blast_cmd()}. The resulting BLAST output is written
-directly to a user-specified file.
+\code{blastn_cmd()} searches a nucleotide database with a query FASTA file.
+It runs BLASTN through \code{blast_cmd()} and writes tabular hits to
+\code{output}.
 }
 \details{
 Output format is fixed to:
@@ -68,19 +66,8 @@ for downstream taxonomic assignment workflows.
 }
 \examples{
 \dontrun{
-blastn_cmd(
-  input   = "sequence.fasta",
-  output  = "query_results.tsv",
-  database = "./ITS_RefSeq_Fungi"
-)
-
-# Specify BLAST installation directory
-blastn_cmd(
-  input   = "seqs.fasta",
-  output  = "blast_out.tsv",
-  database = "nt_db",
-  blast_exe_path = "/usr/local/ncbi/blast/bin"
-)
-}
-
+# queries.fasta contains the sequences to classify; reference is a BLAST prefix.
+blastn_cmd(fasta_file = "queries.fasta", output = "blast.tsv",
+           database = "reference", n_threads = 4)
+}#'
 }

@@ -2,80 +2,97 @@
 % Please edit documentation in R/decontamination.R
 \name{rarefaction_extrapolation}
 \alias{rarefaction_extrapolation}
-\title{Parallel computation and visualization of iNEXT rarefaction/extrapolation curves}
+\title{Calculate read-based rarefaction curves for each reaction}
 \usage{
 rarefaction_extrapolation(
-  temp_data,
-  threads = 1,
-  q = 0,
-  endpoint = 50000,
-  nboot = 20,
+  sequence_table,
+  taxonomy_table = NULL,
+  n_threads = 1,
+  bin_size = NULL,
+  endpoint = NULL,
   x_limit = NULL,
   y_limit = NULL,
   show_legend = NULL,
-  show_observed = F,
-  show_extrapolation = F,
-  x_title = "Reads",
-  y_title = "Species richness ",
-  based = c("size", "coverage")
+  show_observed = FALSE,
+  show_extrapolation = FALSE,
+  x_title = "Sequencing depth",
+  y_title = "Species richness",
+  facet_experiment = TRUE
 )
 }
 \arguments{
-\item{temp_data}{A matrix or data frame of species-by-sample abundance
-data. Each column represents a sample; columns with zero total abundance
-are removed automatically.}
+\item{sequence_table}{A numeric taxa-by-reaction matrix, or a decontaminated
+sequence table containing \code{SEQ} and \code{count_} columns.}
 
-\item{threads}{Integer. Number of parallel workers (future backend).}
+\item{taxonomy_table}{Optional classification result containing \code{SEQ} and
+\code{scientific_name}. The two input tables are matched only through \code{SEQ}.}
 
-\item{q}{Diversity order (Hill number). Default is 0.}
+\item{n_threads}{Number of parallel processes. Default is 1.}
 
-\item{endpoint}{Maximum sample size used for extrapolation in iNEXT.}
+\item{bin_size}{Sequencing-depth interval between adjacent curve points.
+When \code{NULL}, each reaction uses approximately 100 log-spaced points so
+that the rapidly changing low-depth part of the curve is represented.}
 
-\item{nboot}{Number of bootstrap replicates used in iNEXT estimation.}
+\item{endpoint}{Optional extrapolation endpoint. By default, extrapolation
+for every reaction ends at \code{maximum + maximum * 0.1}, where \code{maximum} is
+the largest observed sequencing depth in the input table.}
 
-\item{x_limit}{Optional numeric vector of x-axis limits.}
+\item{x_limit, y_limit}{Optional axis limits.}
 
-\item{y_limit}{Optional numeric vector of y-axis limits.}
+\item{show_legend}{Legend position. Use \code{NULL} to hide the legend.}
 
-\item{show_legend}{Either \code{NULL} (no legend) or a string specifying
-legend position (e.g., \code{"right"}, \code{"bottom"}).}
+\item{show_observed}{Show the observed richness at the full read depth.}
 
-\item{show_observed}{Logical; whether to plot observed richness points.}
+\item{show_extrapolation}{Show richness extrapolation beyond the observed
+sequencing depth as a dashed line.}
 
-\item{show_extrapolation}{Logical; whether to add extrapolation curves.}
+\item{x_title, y_title}{Axis titles.}
 
-\item{x_title}{X-axis label.}
-
-\item{y_title}{Y-axis label.}
-
-\item{based}{One of \code{"size"} or \code{"coverage"} specifying which
-estimator to visualize.}
+\item{facet_experiment}{Split the plot by \code{experiment} when the sequence
+table contains that column. Reused reaction IDs are calculated separately
+within each experiment; the default extrapolation endpoint is set within
+each panel. \code{FALSE} pools experiments. Ignored for matrix input.}
 }
 \value{
-A list with:
-\itemize{
-\item \code{inext_data}: A tidy data frame of iNEXT estimates.
-\item \code{fig}: A ggplot object of rarefaction/extrapolation curves.
-}
+A list containing \code{rarefaction_data} and the ggplot object \code{fig}.
 }
 \description{
-This function performs parallelized iNEXT computation for multiple samples
-(columns) of an abundance matrix. For each sample, standardized diversity
-estimates (qD) are computed based on rarefaction, extrapolation, and
-coverage-based methods. The function returns both the combined iNEXT
-estimates and a ggplot object for visualization.
-}
-\details{
-The function uses \pkg{future.apply} for parallel computation, where each
-sample is processed independently via \code{iNEXT()}. Results are combined,
-reshaped, and plotted using \pkg{ggplot2}.
+Calculate the expected number of taxa recovered at increasing sequencing
+depths. The function can use either a taxa-by-reaction count matrix or a
+decontaminated sequence table together with its classification result.
 }
 \examples{
-\dontrun{
-data <- matrix(rpois(1000, lambda = 3), ncol = 5)
-# each colum represents a PCR sample
-res <- iNEXT_parallel(data, threads = 4, show_observed = TRUE)
-res$fig
-}
+set.seed(123)
+reaction_reads <- round(seq(250, 2000, length.out = 20))
+species_number <- round(seq(6, 30, length.out = 20))
+counts <- vapply(seq_len(20), function(i) {
+  species <- species_number[i]
+  species_reads <- as.vector(rmultinom(
+    1, reaction_reads[i], prob = runif(species, 0.5, 1.5)
+  ))
+  sequence_reads <- unlist(lapply(species_reads, function(x) {
+    first <- rbinom(1, x, 0.5)
+    c(first, x - first)
+  }))
+  c(sequence_reads, rep(0, 60 - length(sequence_reads)))
+}, numeric(60))
+colnames(counts) <- sprintf("count_F\%03d", seq_len(20))
+sequence_table <- data.frame(
+  SEQ = paste0("sequence_", 1:60), counts, check.names = FALSE
+)
+taxonomy <- data.frame(
+  SEQ = sequence_table$SEQ,
+  scientific_name = rep(paste("Species", 1:30), each = 2)
+)
+reaction_info <- data.frame(
+  tag = sub("^count_", "", colnames(counts)),
+  reads = reaction_reads,
+  expected_species = species_number
+)
+result <- rarefaction_extrapolation(
+  sequence_table, taxonomy, n_threads = 2, bin_size = 20,
+  show_extrapolation = TRUE, show_legend = "right"
+)
+result$fig
 
 }

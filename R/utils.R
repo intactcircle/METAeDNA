@@ -1,10 +1,8 @@
 # time display ----------------------------------------------
 #' Print timestamped or dynamic progress messages
 #'
-#' This utility function provides a unified interface for printing timestamped
-#' messages, updating progress in place, or displaying formatted elapsed time.
-#' It is intended for use throughout the METAeDNA workflow to provide consistent
-#' console output in long-running tasks.
+#' \code{show_time()} prints timestamped messages, updates a console line,
+#' or displays elapsed time.
 #'
 #' @param s (character) message string to print. Used in modes \code{0} and
 #'   \code{2}. Ignored when \code{mode = 1}.
@@ -33,7 +31,7 @@
 #'
 #' \strong{Mode 2: Dynamic updating}
 #' Updates the current console line using \code{\\r} and flushes the output.
-#' Useful for real-time progress updates during large file streaming.
+#' This mode displays streaming progress without adding console lines.
 #'
 #' @return
 #' Invisibly returns \code{NULL}. The primary effect is console printing.
@@ -113,16 +111,8 @@ show_time <- function(s, mode = 0, secs = NULL) {
 #' \enumerate{
 #'   \item Use \code{Sys.which(cmd)} to check for the executable in the
 #'         system PATH.
-#'   \item If not found, search platform-specific default directories:
-#'         \itemize{
-#'           \item Windows: typical BLAST+/VSEARCH installation folders under
-#'                 \code{"C:/Program Files"} and \code{"C:/blast"}.
-#'           \item macOS: \code{/usr/local/ncbi/blast/bin},
-#'                 \code{/opt/homebrew/bin},
-#'                 \code{/usr/local/bin}.
-#'           \item Linux: \code{/usr/local/bin}, \code{/usr/bin},
-#'                 \code{/opt/ncbi/blast+/bin}.
-#'         }
+#'   \item If not found, search common platform-specific installation
+#'         directories.
 #'   \item If \code{path} is supplied, construct the executable path using the
 #'         directory provided by the user.
 #' }

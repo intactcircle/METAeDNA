@@ -2,51 +2,63 @@
 % Please edit documentation in R/decontamination.R
 \name{decontamination}
 \alias{decontamination}
-\title{Decontaminate sequence table using blank samples}
+\title{Correct read counts using blank reactions}
 \usage{
 decontamination(
-  seq_table,
+  sequence_table,
   control_table,
   method = c("maximum", "threshold", "mean", "both_threshold"),
   control_names = NULL,
   threshold = 10,
-  remove_status = TRUE
+  remove_status = TRUE,
+  missing_columns = c("zero", "error")
 )
 }
 \arguments{
-\item{seq_table}{A data frame generated from FASTA, containing columns
-\code{experiment}, \code{ID}, \code{SEQ}, and multiple \verb{count_*} columns.}
+\item{sequence_table}{Sequence table containing \code{SEQ} and \code{count_TAG} columns.
+Include \code{experiment} when more than one experiment is present. \code{ID} is
+optional. Rows, including repeated sequence identifiers, are preserved.}
 
-\item{control_table}{A data frame describing sample–blank relationships.
-Must include columns \code{group}, \code{sample}, \code{tag}, and blank columns named
-in \code{control_names}.}
+\item{control_table}{Reaction definitions with \code{group}, \code{sample_id}, \code{reaction_id},
+\code{category}, and one column per blank type listed in \code{control_names}.
+Sample reactions use \code{category = "sample"}. Blank columns contain the
+corresponding blank sample name. Include \code{experiment} for multiple
+experiments; each experiment/reaction_id pair must identify one reaction.}
 
-\item{method}{The decontamination method. One of:
-\itemize{
-\item \code{"maximum"} — subtract the maximum blank count
-\item \code{"threshold"} — remove sequences when blank max < threshold
-\item \code{"mean"} — subtract the mean blank count
-\item \code{"both_threshold"} — remove only when all blank counts < threshold
-}}
+\item{method}{\code{"maximum"} subtracts the largest blank-replicate count.
+\code{"mean"} subtracts the rounded mean. \code{"threshold"} excludes detections
+when any blank replicate reaches \code{threshold}; \code{"both_threshold"}
+excludes them when every blank replicate reaches it.}
 
-\item{control_names}{A character vector giving blank types (e.g. \code{c("FB","EB","PB")}).}
+\item{control_names}{Blank categories to use, such as \code{c("FB", "EB", "PB")}.}
 
-\item{threshold}{Numeric threshold used in methods "threshold" and "both_threshold".}
+\item{threshold}{Non-negative read-count cutoff for the threshold methods.}
+
+\item{remove_status}{Remove columns beginning with \code{status_}.}
+
+\item{missing_columns}{\code{"zero"} fills absent count columns referenced by
+the control table with zero. \code{"error"} reports missing columns instead.}
 }
 \value{
-The input \code{seq_table} with blank-corrected abundance columns.
+A sequence table with corrected counts and, if present, updated
+\code{total_count}. This method does not estimate contamination probabilities.
 }
 \description{
-This function removes contaminant sequences by comparing sample counts
-against corresponding blank samples defined in a control table.
-The procedure supports several removal strategies based on blank abundance.
+Subtract blank counts or exclude detections using the blank reactions
+assigned to each sample in the control table.
 }
 \details{
-For each blank type, the function identifies all associated blank samples
-and maps them to target sample tags. Blank abundance is computed per sequence
-and used to adjust sample counts. All adjustments are performed only on
-sample columns corresponding to the affected blank group.
+Corrections are computed within each experiment and control group.
+With several blank types, each correction is applied in turn using the
+original blank counts. Subtracted counts are bounded below by zero.
+A blank name without a matching control-table row is an error.
+Control counts are cleared and control-only columns are removed.
 }
 \examples{
-1
+sequence_table <- data.frame(SEQ = c("ACGT", "TGCA"), count_A = c(20, 5),
+                        count_B = c(3, 8), total_count = c(23, 13))
+controls <- data.frame(group = "G1", sample_id = c("S1", "blank"),
+                       reaction_id = c("A", "B"), category = c("sample", "FB"),
+                       FB = c("blank", NA))
+decontamination(sequence_table, controls, control_names = "FB")
 }
