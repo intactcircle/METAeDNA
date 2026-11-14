@@ -60,8 +60,9 @@ blanks. Other tag lengths can be specified in the reaction table.
 
 ``` r
 # install.packages("remotes") # Run once if needed.
+# install from a local package file
 remotes::install_local("METAeDNA_1.0.0.tar.gz", upgrade = "never")
-
+# install from GitHub
 library(METAeDNA)
 packageVersion("METAeDNA")
 ```
