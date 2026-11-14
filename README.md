@@ -63,6 +63,7 @@ blanks. Other tag lengths can be specified in the reaction table.
 # install from a local package file
 remotes::install_local("METAeDNA_1.0.0.tar.gz", upgrade = "never")
 # install from GitHub
+remotes::install_github("intactcircle/METAeDNA")
 library(METAeDNA)
 packageVersion("METAeDNA")
 ```
@@ -101,7 +102,7 @@ needed.
 
 <a id="sequence-processing"></a>
 
-## 1. Sequence processing and reaction counts
+## 1. Sequence processing
 
 
 This tutorial takes paired FASTQ reads through merging, demultiplexing,
